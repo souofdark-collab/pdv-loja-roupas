@@ -44,10 +44,27 @@ export default function PDV({ user, onClose, onCartChange }) {
   const [config, setConfig] = useState({});
   const searchInputRef = useRef(null);
   const receiptRef = useRef(null);
+  const [pdvAlert, setPdvAlert] = useState(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  const showAlert = (msg) => { document.activeElement?.blur(); setPdvAlert(msg); };
+  const confirmCancel = () => { document.activeElement?.blur(); setShowCancelConfirm(true); };
 
   useEffect(() => {
     loadData();
   }, []);
+
+  const closeBarcodeMode = () => {
+    document.activeElement?.blur();
+    setBarcodeMode(false);
+    setBarcodeInput('');
+    setBarcodeError('');
+  };
+
+  const closeCheckout = () => {
+    document.activeElement?.blur();
+    setShowCheckout(false);
+  };
 
   useEffect(() => {
     if (barcodeMode) {
@@ -71,13 +88,13 @@ export default function PDV({ user, onClose, onCartChange }) {
   useEffect(() => {
     const handler = (e) => {
       if (e.key === 'F2' && cart.length > 0) { e.preventDefault(); setShowCheckout(true); }
-      if (e.key === 'F4' && cart.length > 0) { e.preventDefault(); if (confirm('Cancelar venda? Todos os itens serão removidos do carrinho.')) setCart([]); }
+      if (e.key === 'F4' && cart.length > 0) { e.preventDefault(); confirmCancel(); }
       // Enter on numeric barcode search - auto-add to cart
       if (e.key === 'Enter' && searchTerm && /^\d+$/.test(searchTerm)) {
         e.preventDefault();
         const found = produtos.find(p => p.codigo_barras && p.codigo_barras.includes(searchTerm));
         if (found) addToCart(found);
-        else alert('Produto com código de barras não encontrado');
+        else showAlert('Produto com código de barras não encontrado');
       }
       // ESC to close modals
       if (e.key === 'Escape') {
@@ -87,7 +104,7 @@ export default function PDV({ user, onClose, onCartChange }) {
           setCompletedSale(null);
         } else if (showCheckout) {
           e.preventDefault();
-          setShowCheckout(false);
+          closeCheckout();
         }
       }
     };
@@ -101,9 +118,7 @@ export default function PDV({ user, onClose, onCartChange }) {
     const found = produtos.find(p => p.codigo_barras && p.codigo_barras === barcodeInput.trim());
     if (found) {
       addToCart(found);
-      setBarcodeMode(false);
-      setBarcodeInput('');
-      setBarcodeError('');
+      closeBarcodeMode();
     } else {
       setBarcodeError(`Produto não encontrado: "${barcodeInput}"`);
       setBarcodeInput('');
@@ -115,6 +130,11 @@ export default function PDV({ user, onClose, onCartChange }) {
   const [showProductModal, setShowProductModal] = useState(false);
   const [manualSearch, setManualSearch] = useState(false);
   const productModalInputRef = useRef(null);
+
+  const closeProductModal = () => {
+    document.activeElement?.blur();
+    setShowProductModal(false);
+  };
 
   useEffect(() => {
     if (showProductModal) {
@@ -176,7 +196,7 @@ export default function PDV({ user, onClose, onCartChange }) {
   const addToCart = (produto) => {
     const estoqueItem = estoque.find(e => e.produto_id === produto.id && e.quantidade > 0);
     if (!estoqueItem) {
-      alert('Produto sem estoque disponível');
+      showAlert('Produto sem estoque disponível');
       return;
     }
 
@@ -199,7 +219,7 @@ export default function PDV({ user, onClose, onCartChange }) {
     const existing = cart.find(c => c.estoque_id === estoqueItem.id);
     if (existing) {
       if (existing.quantidade >= estoqueItem.quantidade) {
-        alert('Estoque insuficiente');
+        showAlert('Estoque insuficiente');
         return;
       }
       setCart(cart.map(c => c.estoque_id === estoqueItem.id ? { ...c, quantidade: c.quantidade + 1 } : c));
@@ -232,7 +252,7 @@ export default function PDV({ user, onClose, onCartChange }) {
   const updateCartQty = (estoque_id, qty) => {
     const estoqueItem = estoque.find(e => e.id === estoque_id);
     if (qty > estoqueItem.quantidade) {
-      alert('Estoque insuficiente');
+      showAlert('Estoque insuficiente');
       return;
     }
     if (qty <= 0) {
@@ -271,15 +291,15 @@ export default function PDV({ user, onClose, onCartChange }) {
   const finalizeSale = async () => {
     if (cart.length === 0) return;
     if (!selectedClient) {
-      alert('Selecione um cliente antes de finalizar a venda');
+      showAlert('Selecione um cliente antes de finalizar a venda');
       return;
     }
     if (!selectedVendedor) {
-      alert('Selecione um vendedor antes de finalizar a venda');
+      showAlert('Selecione um vendedor antes de finalizar a venda');
       return;
     }
     if (cashFieldVisible && Number(cashGiven) < total) {
-      alert('Valor insuficiente');
+      showAlert('Valor insuficiente');
       return;
     }
     try {
@@ -310,7 +330,7 @@ export default function PDV({ user, onClose, onCartChange }) {
       window.api.get('/api/estoque').then(setEstoque);
       window.api.get('/api/produtos').then(setProdutos);
     } catch (err) {
-      alert(err?.message || 'Erro ao finalizar venda');
+      showAlert(err?.message || 'Erro ao finalizar venda');
     }
   };
 
@@ -382,7 +402,7 @@ export default function PDV({ user, onClose, onCartChange }) {
     const printerName = config.impressora_padrao;
     if (printerName && window.electron?.printReceipt) {
       const res = await window.electron.printReceipt(html, printerName);
-      if (!res.success) alert('Falha ao imprimir: ' + (res.reason || 'erro'));
+      if (!res.success) showAlert('Falha ao imprimir: ' + (res.reason || 'erro'));
     } else {
       const printWindow = window.open('', '_blank');
       if (!printWindow) return;
@@ -676,7 +696,7 @@ export default function PDV({ user, onClose, onCartChange }) {
               disabled={cart.length === 0}
               onClick={() => {
                 if (!selectedClient || !selectedVendedor) {
-                  alert('Selecione o cliente e o vendedor antes de finalizar');
+                  showAlert('Selecione o cliente e o vendedor antes de finalizar');
                   return;
                 }
                 setShowCheckout(true);
@@ -685,7 +705,7 @@ export default function PDV({ user, onClose, onCartChange }) {
               Finalizar Venda (F2)
             </button>
             {cart.length > 0 && (
-              <button className="btn-danger" onClick={() => { if (confirm('Cancelar venda? Todos os itens serão removidos do carrinho.')) setCart([]); }}>Cancelar (F4)</button>
+              <button className="btn-danger" onClick={confirmCancel}>Cancelar (F4)</button>
             )}
           </div>
         </div>
@@ -693,11 +713,11 @@ export default function PDV({ user, onClose, onCartChange }) {
 
       {/* Product Search Modal */}
       {showProductModal && (
-        <div className="modal-overlay" onClick={() => setShowProductModal(false)}>
+        <div className="modal-overlay" onClick={closeProductModal}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 620, width: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h3 style={{ margin: 0 }}>Buscar Produto</h3>
-              <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 13 }} onClick={() => setShowProductModal(false)}>Fechar</button>
+              <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 13 }} onClick={closeProductModal}>Fechar</button>
             </div>
 
             <input
@@ -733,7 +753,7 @@ export default function PDV({ user, onClose, onCartChange }) {
                     onClick={() => {
                       if (!hasStock) return;
                       addToCart(p);
-                      setShowProductModal(false);
+                      closeProductModal();
                     }}
                     style={{
                       padding: '12px 14px', cursor: hasStock ? 'pointer' : 'not-allowed',
@@ -770,7 +790,7 @@ export default function PDV({ user, onClose, onCartChange }) {
 
       {/* Barcode Modal */}
       {barcodeMode && (
-        <div className="modal-overlay" onClick={() => { setBarcodeMode(false); setBarcodeInput(''); setBarcodeError(''); }}>
+        <div className="modal-overlay" onClick={closeBarcodeMode}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380, textAlign: 'center' }}>
             <div style={{ fontSize: 56, marginBottom: 8 }}>&#x1F4E6;</div>
             <h2 style={{ marginBottom: 8 }}>Aguardando Leitura</h2>
@@ -791,7 +811,7 @@ export default function PDV({ user, onClose, onCartChange }) {
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                 <button type="button" className="btn-secondary" style={{ flex: 1 }}
-                  onClick={() => { setBarcodeMode(false); setBarcodeInput(''); setBarcodeError(''); }}>
+                  onClick={closeBarcodeMode}>
                   Cancelar
                 </button>
                 <button type="submit" className="btn-primary" style={{ flex: 1 }}>
@@ -805,7 +825,7 @@ export default function PDV({ user, onClose, onCartChange }) {
 
       {/* Checkout Modal */}
       {showCheckout && (
-        <div className="modal-overlay" onClick={() => setShowCheckout(false)}>
+        <div className="modal-overlay" onClick={closeCheckout}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2 style={{ marginBottom: 20 }}>Finalizar Venda</h2>
 
@@ -897,12 +917,35 @@ export default function PDV({ user, onClose, onCartChange }) {
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-              <button className="btn-secondary" style={{ flex: 1, padding: 12 }} onClick={() => setShowCheckout(false)}>
+              <button className="btn-secondary" style={{ flex: 1, padding: 12 }} onClick={closeCheckout}>
                 Voltar
               </button>
               <button className="btn-success" style={{ flex: 2, padding: 12, fontSize: 18 }} onClick={finalizeSale}>
                 Confirmar Pagamento
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alert Modal */}
+      {pdvAlert && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }} onClick={() => setPdvAlert(null)}>
+          <div className="card" style={{ maxWidth: 340, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>{pdvAlert}</p>
+            <button className="btn-primary" onClick={() => setPdvAlert(null)}>OK</button>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Sale Confirm Modal */}
+      {showCancelConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }} onClick={() => setShowCancelConfirm(false)}>
+          <div className="card" style={{ maxWidth: 340, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>Cancelar venda? Os itens do carrinho serão perdidos.</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn-secondary" onClick={() => setShowCancelConfirm(false)}>Não</button>
+              <button className="btn-danger" onClick={() => { setShowCancelConfirm(false); setCart([]); }}>Cancelar Venda</button>
             </div>
           </div>
         </div>

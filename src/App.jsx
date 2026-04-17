@@ -71,14 +71,19 @@ function App() {
   }, []);
 
   const pdvCartRef = React.useRef([]);
+  const [showPDVCloseConfirm, setShowPDVCloseConfirm] = useState(false);
 
   const openModal = (type) => { if (!showModal) setShowModal(type); };
-  const closeModal = () => setShowModal(null);
+  const closeModal = () => {
+    document.activeElement?.blur();
+    setShowModal(null);
+  };
   const handleClosePDV = () => {
     if (pdvCartRef.current.length > 0) {
-      if (!confirm('Fechar o PDV? Os itens do carrinho serão perdidos.')) return;
+      setShowPDVCloseConfirm(true);
+    } else {
+      closeModal();
     }
-    closeModal();
   };
 
   const handleLogin = (userData) => {
@@ -120,6 +125,17 @@ function App() {
             <button className="btn-danger" style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px', zIndex: 1 }} onClick={handleClosePDV}>Fechar</button>
             <PDV user={user} onClose={closeModal} onCartChange={cart => { pdvCartRef.current = cart; }} />
           </div>
+          {showPDVCloseConfirm && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={e => e.stopPropagation()}>
+              <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }}>
+                <p style={{ marginBottom: 20, fontSize: 15 }}>Fechar o PDV? Os itens do carrinho serão perdidos.</p>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                  <button className="btn-secondary" onClick={() => setShowPDVCloseConfirm(false)}>Cancelar</button>
+                  <button className="btn-danger" onClick={() => { setShowPDVCloseConfirm(false); closeModal(); }}>Fechar PDV</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
