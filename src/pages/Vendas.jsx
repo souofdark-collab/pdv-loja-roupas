@@ -9,6 +9,7 @@ export default function Vendas() {
   const [cancelModal, setCancelModal] = useState(null); // venda a cancelar
   const [senhaAdmin, setSenhaAdmin] = useState('');
   const [senhaErro, setSenhaErro] = useState('');
+  const [motivoCancelamento, setMotivoCancelamento] = useState('');
 
   useEffect(() => { loadData(); }, []);
 
@@ -25,6 +26,7 @@ export default function Vendas() {
     if (editForm.status === 'cancelada') {
       const venda = vendas.find(v => v.id === editingVenda);
       if (venda && venda.status !== 'cancelada') {
+        setMotivoCancelamento('');
         setCancelModal({ vendaId: editingVenda, formData: editForm });
         setEditingVenda(null);
         return;
@@ -41,14 +43,16 @@ export default function Vendas() {
   const handleConfirmarCancelamento = async () => {
     setSenhaErro('');
     if (!loginAdmin.trim()) { setSenhaErro('Informe o login do administrador.'); return; }
+    if (!motivoCancelamento.trim()) { setSenhaErro('Informe o motivo do cancelamento.'); return; }
     try {
       const res = await window.api.post('/api/login', { login: loginAdmin.trim(), senha: senhaAdmin });
       if (res && res.cargo === 'admin') {
         const user = JSON.parse(localStorage.getItem('pdv_user'));
-        await window.api.put(`/api/vendas/${cancelModal.vendaId}`, { ...cancelModal.formData, usuario_id: user?.id });
+        await window.api.put(`/api/vendas/${cancelModal.vendaId}`, { ...cancelModal.formData, usuario_id: user?.id, motivo_cancelamento: motivoCancelamento.trim() });
         setCancelModal(null);
         setSenhaAdmin('');
         setLoginAdmin('');
+        setMotivoCancelamento('');
         loadData();
       } else {
         setSenhaErro('Usuário não tem permissão de administrador.');
@@ -60,24 +64,81 @@ export default function Vendas() {
 
   const formatCurrency = (v) => `R$ ${Number(v).toFixed(2)}`;
 
+  const handleReprint = (venda) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Cupom - Venda #${venda.id}</title>
+        <style>
+          body { font-family: 'Courier New', monospace; max-width: 300px; margin: 0 auto; padding: 10px; font-size: 12px; }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .line { border-top: 1px dashed #000; margin: 8px 0; }
+          .total { font-size: 18px; font-weight: bold; }
+          .item { margin: 4px 0; }
+          @media print { body { margin: 0; padding: 5px; } }
+        </style>
+      </head>
+      <body>
+        <p class="center bold">TS Concept PDV</p>
+        <div class="line"></div>
+        <p class="center bold">Venda #${venda.id}</p>
+        <p>Data: ${new Date(venda.data).toLocaleString('pt-BR')}</p>
+        ${venda.cliente_nome ? `<p>Cliente: ${venda.cliente_nome}</p>` : ''}
+        <p>Vendedor: ${venda.usuario_nome}</p>
+        <div class="line"></div>
+        ${(venda.itens || []).map(item => `
+          <div class="item">
+            ${item.produto_nome} (${item.tamanho || '-'}/${item.cor || '-'})<br/>
+            ${item.quantidade} x ${formatCurrency(item.preco_unitario)} = ${formatCurrency(item.quantidade * item.preco_unitario)}
+          </div>
+        `).join('')}
+        <div class="line"></div>
+        <p>Subtotal: ${formatCurrency(venda.subtotal || venda.total)}</p>
+        ${venda.desconto > 0 ? `<p>Desconto: -${formatCurrency(venda.desconto)}</p>` : ''}
+        <p class="total">TOTAL: ${formatCurrency(venda.total)}</p>
+        <p>Pagamento: ${venda.forma_pagamento}</p>
+        <div class="line"></div>
+        <p class="center">Obrigado pela preferência!</p>
+        <p class="center" style="font-size:10px">2ª VIA</p>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
+  };
+
   return (
     <div>
       <h1 style={{ marginBottom: 24 }}>Histórico de Vendas</h1>
 
       {/* Modal confirmação cancelamento com senha */}
       {cancelModal && (
-        <div className="modal-overlay" onClick={() => { setCancelModal(null); setSenhaAdmin(''); setLoginAdmin(''); setSenhaErro(''); }}>
+        <div className="modal-overlay" onClick={() => { setCancelModal(null); setSenhaAdmin(''); setLoginAdmin(''); setSenhaErro(''); setMotivoCancelamento(''); }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <h3 style={{ marginBottom: 12, color: 'var(--danger)' }}>Cancelar Venda #{cancelModal.vendaId}</h3>
             <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
               Esta ação é irreversível. Informe as credenciais de um administrador para confirmar.
             </p>
             <div className="form-group">
+              <label>Motivo do Cancelamento *</label>
+              <textarea
+                value={motivoCancelamento}
+                onChange={e => { setMotivoCancelamento(e.target.value); setSenhaErro(''); }}
+                rows={2}
+                placeholder="Descreva o motivo do cancelamento"
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
               <label>Login do Administrador</label>
               <input
                 value={loginAdmin}
                 onChange={e => { setLoginAdmin(e.target.value); setSenhaErro(''); }}
-                autoFocus
                 placeholder="ex: admin"
               />
             </div>
@@ -93,7 +154,7 @@ export default function Vendas() {
               {senhaErro && <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4 }}>{senhaErro}</p>}
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => { setCancelModal(null); setSenhaAdmin(''); setLoginAdmin(''); setSenhaErro(''); }}>Voltar</button>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => { setCancelModal(null); setSenhaAdmin(''); setLoginAdmin(''); setSenhaErro(''); setMotivoCancelamento(''); }}>Voltar</button>
               <button className="btn-danger" style={{ flex: 1 }} onClick={handleConfirmarCancelamento}>Confirmar Cancelamento</button>
             </div>
           </div>
@@ -138,36 +199,44 @@ export default function Vendas() {
       )}
 
       <div className="card">
-        <table>
-          <thead>
-            <tr><th>#</th><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Pagamento</th><th>Parcelas</th><th>Status</th><th>Total</th><th>Ações</th></tr>
-          </thead>
-          <tbody>
-            {vendas.map(v => (
-              <tr key={v.id}>
-                <td>{v.id}</td>
-                <td>{new Date(v.data).toLocaleString('pt-BR')}</td>
-                <td>{v.cliente_nome || '-'}</td>
-                <td>{v.usuario_nome}</td>
-                <td>{v.forma_pagamento}</td>
-                <td>{v.parcelas ? `${v.parcelas}x` : '-'}</td>
-                <td>
-                  {v.status === 'finalizada' && <span className="badge badge-success">Finalizada</span>}
-                  {v.status === 'cancelada' && <span className="badge badge-danger">Cancelada</span>}
-                  {v.status === 'devolvida' && <span className="badge badge-warning">Devolvida</span>}
-                </td>
-                <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{formatCurrency(v.total)}</td>
-                <td style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setSelectedVenda(v)}>Ver</button>
-                  <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openEdit(v)}>Editar</button>
-                  {v.status === 'finalizada' && (
-                    <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setTrocaForm(v)}>Troca/Dev.</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ minWidth: 900 }}>
+            <thead>
+              <tr><th>#</th><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Pagamento</th><th>Parcelas</th><th>Status</th><th>Total</th><th>Ações</th></tr>
+            </thead>
+            <tbody>
+              {vendas.map(v => (
+                <tr key={v.id}>
+                  <td>{v.id}</td>
+                  <td>{new Date(v.data).toLocaleString('pt-BR')}</td>
+                  <td>{v.cliente_nome || '-'}</td>
+                  <td>{v.usuario_nome}</td>
+                  <td>{v.forma_pagamento}</td>
+                  <td>{v.parcelas ? `${v.parcelas}x` : '-'}</td>
+                  <td>
+                    {v.status === 'finalizada' && <span className="badge badge-success">Finalizada</span>}
+                    {v.status === 'cancelada' && <span className="badge badge-danger">Cancelada</span>}
+                    {v.status === 'devolvida' && <span className="badge badge-warning">Devolvida</span>}
+                  </td>
+                  <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{formatCurrency(v.total)}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'nowrap' }}>
+                      <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setSelectedVenda(v)}>Ver</button>
+                      <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openEdit(v)}>Editar</button>
+                      <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={async () => {
+                        const full = await window.api.get(`/api/vendas/${v.id}`);
+                        handleReprint({ ...v, itens: full.itens || [] });
+                      }}>Imprimir</button>
+                      {v.status === 'finalizada' && (
+                        <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setTrocaForm(v)}>Troca/Dev.</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {vendas.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma venda registrada</p>}
       </div>
 
@@ -196,7 +265,10 @@ export default function Vendas() {
             </table>
             <hr style={{ borderColor: 'var(--border)', margin: '12px 0' }} />
             <p style={{ fontSize: 18, fontWeight: 700 }}>Total: {formatCurrency(selectedVenda.total)}</p>
-            <button className="btn-secondary" onClick={() => setSelectedVenda(null)} style={{ marginTop: 12 }}>Fechar</button>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => handleReprint(selectedVenda)}>Reimprimir</button>
+              <button className="btn-primary" style={{ flex: 1 }} onClick={() => setSelectedVenda(null)}>Fechar</button>
+            </div>
           </div>
         </div>
       )}

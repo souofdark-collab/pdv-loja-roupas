@@ -5,7 +5,8 @@ const TABLES = [
   'estoque', 'estoque_movimentacoes', 'vendas',
   'venda_itens', 'promocoes', 'promocoes_regras',
   'despesas_categorias', 'despesas',
-  'configuracoes', 'formas_pagamento', 'trocas'
+  'configuracoes', 'formas_pagamento', 'trocas',
+  'historico_precos', 'log_acoes', 'abertura_caixa'
 ];
 
 export default function Backup({ user }) {
@@ -14,33 +15,26 @@ export default function Backup({ user }) {
   const [backupData, setBackupData] = useState(null);
   const [fileSelected, setFileSelected] = useState(null);
   const [tablesInfo, setTablesInfo] = useState([]);
+  const [wipeModal, setWipeModal] = useState(false);
+  const [wipeLogin, setWipeLogin] = useState('');
+  const [wipeSenha, setWipeSenha] = useState('');
+  const [wipeErro, setWipeErro] = useState('');
 
   useEffect(() => {
     loadTablesInfo();
   }, []);
 
   const loadTablesInfo = () => {
-    const promises = TABLES.map(table =>
-      window.api.get(`/api/${table}`).catch(() => Promise.resolve([]))
-    );
-    Promise.all(promises).then(results => {
-      setTablesInfo(TABLES.map((table, i) => ({ name: table, count: results[i]?.length || 0 })));
-    });
+    window.api.get('/api/backup/export').then(backup => {
+      setTablesInfo(TABLES.map(table => ({ name: table, count: (backup.data[table] || []).length })));
+    }).catch(() => {});
   };
 
   const handleExport = async () => {
     setLoading(true);
     setStatus('Exportando dados...');
     try {
-      const backup = { version: '1.0', exportDate: new Date().toISOString(), data: {} };
-      for (const table of TABLES) {
-        try {
-          const data = await window.api.get(`/api/${table}`);
-          backup.data[table] = data;
-        } catch {
-          backup.data[table] = [];
-        }
-      }
+      const backup = await window.api.get('/api/backup/export');
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -74,24 +68,7 @@ export default function Backup({ user }) {
         setLoading(false);
         return;
       }
-      // Import each table
-      for (const [table, records] of Object.entries(backup.data)) {
-        if (!TABLES.includes(table)) continue;
-        if (!Array.isArray(records)) continue;
-        // Delete all existing records first, then insert new ones
-        // Since we don't have a "clear table" endpoint, we'll delete one by one
-        // For a more efficient approach, we'll use a batch import
-        const existing = await window.api.get(`/api/${table}`).catch(() => []);
-        // Delete existing
-        for (const record of existing) {
-          await window.api.delete(`/api/${table}/${record.id}`).catch(() => {});
-        }
-        // Insert new
-        for (const record of records) {
-          const { id, ...data } = record;
-          await window.api.post(`/api/${table}`, data).catch(() => {});
-        }
-      }
+      await window.api.post('/api/backup/restore', { data: backup.data });
       setStatus('Backup restaurado com sucesso! Recarregando...');
       setTimeout(() => window.location.reload(), 2000);
     } catch (err) {
@@ -100,9 +77,54 @@ export default function Backup({ user }) {
     setLoading(false);
   };
 
+  const handleWipe = async () => {
+    setWipeErro('');
+    if (!wipeLogin.trim() || !wipeSenha) { setWipeErro('Preencha login e senha.'); return; }
+    try {
+      setLoading(true);
+      const res = await window.api.post('/api/backup/wipe', { login: wipeLogin.trim(), senha: wipeSenha });
+      if (res && res.success) {
+        setWipeModal(false);
+        setWipeLogin('');
+        setWipeSenha('');
+        setStatus('Banco de dados limpo com sucesso! Recarregando...');
+        setTimeout(() => window.location.reload(), 2000);
+      }
+    } catch (err) {
+      setWipeErro(err?.message || 'Erro ao limpar banco de dados.');
+    }
+    setLoading(false);
+  };
+
   return (
     <div>
       <h1 style={{ marginBottom: 24 }}>Backup e Restauração</h1>
+
+      {wipeModal && (
+        <div className="modal-overlay" onClick={() => { setWipeModal(false); setWipeErro(''); setWipeLogin(''); setWipeSenha(''); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <h3 style={{ marginBottom: 12, color: 'var(--danger)' }}>Limpar Banco de Dados</h3>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Esta ação é <strong>irreversível</strong> e apagará todos os dados (vendas, produtos, clientes, etc.).<br />
+              Apenas o administrador principal do sistema pode realizar esta ação.
+            </p>
+            <div className="form-group">
+              <label>Login do Administrador Principal</label>
+              <input value={wipeLogin} onChange={e => { setWipeLogin(e.target.value); setWipeErro(''); }} autoFocus placeholder="ex: admin" />
+            </div>
+            <div className="form-group">
+              <label>Senha</label>
+              <input type="password" value={wipeSenha} onChange={e => { setWipeSenha(e.target.value); setWipeErro(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleWipe()} placeholder="Senha" />
+              {wipeErro && <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4 }}>{wipeErro}</p>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => { setWipeModal(false); setWipeErro(''); setWipeLogin(''); setWipeSenha(''); }}>Cancelar</button>
+              <button className="btn-danger" style={{ flex: 1 }} onClick={handleWipe} disabled={loading}>Confirmar Limpeza</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
         {/* Export */}
@@ -140,6 +162,17 @@ export default function Backup({ user }) {
           </p>
         </div>
       )}
+
+      {/* Danger Zone */}
+      <div className="card" style={{ marginBottom: 24, border: '1px solid var(--danger)' }}>
+        <h3 style={{ marginBottom: 8, color: 'var(--danger)' }}>Zona de Perigo</h3>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+          Limpa todos os dados do sistema. Esta ação não pode ser desfeita. Apenas o administrador principal pode executar.
+        </p>
+        <button className="btn-danger" onClick={() => setWipeModal(true)} style={{ width: '100%' }}>
+          Limpar Banco de Dados
+        </button>
+      </div>
 
       {/* Tables Info */}
       <div className="card">

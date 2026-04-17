@@ -41,7 +41,7 @@ export default function Estoque() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (editingId) {
-      await window.api.put(`/api/estoque/${editingId}`, { quantidade: Number(form.quantidade), minimo: Number(form.minimo) });
+      await window.api.put(`/api/estoque/${editingId}`, { quantidade: Number(form.quantidade), minimo: Number(form.minimo), tamanho: form.tamanho, cor: form.cor });
     } else {
       await window.api.post('/api/estoque', { ...form, quantidade: Number(form.quantidade), minimo: Number(form.minimo) });
     }

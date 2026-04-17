@@ -1,0 +1,78 @@
+const express = require('express');
+const bcrypt = require('bcryptjs');
+
+const ALL_TABLES = [
+  'usuarios', 'clientes', 'categorias', 'produtos',
+  'estoque', 'estoque_movimentacoes', 'vendas',
+  'venda_itens', 'promocoes', 'promocoes_regras',
+  'despesas_categorias', 'despesas',
+  'configuracoes', 'formas_pagamento',
+  'trocas', 'historico_precos', 'log_acoes', 'abertura_caixa'
+];
+
+const WIPE_TABLES = [
+  'clientes', 'categorias', 'produtos', 'estoque', 'estoque_movimentacoes',
+  'vendas', 'venda_itens', 'promocoes', 'promocoes_regras',
+  'despesas_categorias', 'despesas', 'formas_pagamento',
+  'trocas', 'historico_precos', 'log_acoes', 'abertura_caixa'
+];
+
+
+module.exports = (db) => {
+  const router = express.Router();
+
+  // Export raw data from all tables (no computed fields)
+  router.get('/backup/export', (req, res) => {
+    const data = {};
+    for (const table of ALL_TABLES) {
+      data[table] = db._data[table] || [];
+    }
+    res.json({ version: '2.0', exportDate: new Date().toISOString(), data });
+  });
+
+  // Direct restore endpoint — bypasses individual route validators (e.g. bcrypt on usuarios)
+  router.post('/backup/restore', (req, res) => {
+    const { data } = req.body;
+    if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Dados inválidos.' });
+    try {
+      for (const table of ALL_TABLES) {
+        if (!data[table] || !Array.isArray(data[table])) continue;
+        db._data[table] = data[table];
+        db._save(table);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/backup/wipe', (req, res) => {
+    const { login, senha } = req.body;
+    if (!login || !senha) return res.status(400).json({ error: 'Login e senha obrigatórios.' });
+
+    const user = db.findOne('usuarios', { login: login.trim() });
+    if (!user || !bcrypt.compareSync(senha, user.senha_hash)) {
+      return res.status(401).json({ error: 'Login ou senha incorretos.' });
+    }
+
+    // Only the original admin (lowest id among admins) can wipe
+    const admins = db.select('usuarios').filter(u => u.cargo === 'admin').sort((a, b) => a.id - b.id);
+    if (!admins.length || admins[0].id !== user.id) {
+      return res.status(403).json({ error: 'Apenas o administrador principal pode realizar esta ação.' });
+    }
+
+    // Wipe all data tables
+    for (const table of WIPE_TABLES) {
+      db._data[table] = [];
+      db._save(table);
+    }
+
+    // Keep only the original admin user
+    db._data.usuarios = db._data.usuarios.filter(u => u.id === admins[0].id);
+    db._save('usuarios');
+
+    res.json({ success: true });
+  });
+
+  return router;
+};

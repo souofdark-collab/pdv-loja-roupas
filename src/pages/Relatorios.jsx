@@ -72,28 +72,36 @@ export default function Relatorios() {
     exportPDF({ title, headers, data: rows, footer, filename: `relatorio-${tipoRelatorio}-${new Date().toISOString().split('T')[0]}.pdf` });
   };
 
+  const escapeCSV = (val) => {
+    const s = String(val ?? '');
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  };
+
   const exportCSV = () => {
     if (!data) return;
     let csv = '';
     if (tipoRelatorio === 'vendas' && data.vendas) {
       csv = 'ID,Data,Cliente,Vendedor,Pagamento,Total\n';
       data.vendas.forEach(v => {
-        csv += `${v.id},${new Date(v.data).toLocaleString('pt-BR')},${v.cliente_nome || '-'},${v.usuario_nome},${v.forma_pagamento},${v.total}\n`;
+        csv += [v.id, new Date(v.data).toLocaleString('pt-BR'), v.cliente_nome || '-', v.usuario_nome, v.forma_pagamento, v.total].map(escapeCSV).join(',') + '\n';
       });
     } else if (tipoRelatorio === 'mais-vendidos' && data.length) {
       csv = 'Produto,Categoria,Qtd Vendida,Total\n';
       data.forEach(p => {
-        csv += `${p.nome},${p.categoria || '-'},${p.qtd_vendida},${p.total}\n`;
+        csv += [p.nome, p.categoria || '-', p.qtd_vendida, p.total].map(escapeCSV).join(',') + '\n';
       });
     } else if (tipoRelatorio === 'estoque-valor' && data.length) {
       csv = 'Produto,Categoria,Qtd Total,Valor Venda,Valor Custo\n';
       data.forEach(p => {
-        csv += `${p.nome},${p.categoria || '-'},${p.qtd_total},${p.valor_venda},${p.valor_custo}\n`;
+        csv += [p.nome, p.categoria || '-', p.qtd_total, p.valor_venda, p.valor_custo].map(escapeCSV).join(',') + '\n';
       });
     } else if (tipoRelatorio === 'por-vendedor' && data.length) {
       csv = 'Vendedor,Qtd Vendas,Total\n';
       data.forEach(v => {
-        csv += `${v.nome},${v.qtd_vendas},${v.total}\n`;
+        csv += [v.nome, v.qtd_vendas, v.total].map(escapeCSV).join(',') + '\n';
       });
     }
     const blob = new Blob([csv], { type: 'text/csv' });

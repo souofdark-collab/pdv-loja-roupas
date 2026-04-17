@@ -8,6 +8,8 @@ export default function Configuracoes({ user }) {
   const [showNewPag, setShowNewPag] = useState(false);
   const [newPag, setNewPag] = useState({ nome: '', ativa: 1 });
   const [editingPag, setEditingPag] = useState(null);
+  const [impressoras, setImpressoras] = useState([]);
+  const [loadingImpressoras, setLoadingImpressoras] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -151,7 +153,8 @@ export default function Configuracoes({ user }) {
         {[
           { id: 'empresa', label: 'Dados da Empresa' },
           { id: 'tema', label: 'Tema e Cores' },
-          { id: 'pagamentos', label: 'Formas de Pagamento' }
+          { id: 'pagamentos', label: 'Formas de Pagamento' },
+          { id: 'impressora', label: 'Impressora' }
         ].map(t => (
           <button
             key={t.id}
@@ -312,6 +315,79 @@ export default function Configuracoes({ user }) {
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             <button className="btn-success" onClick={handleSaveTema}>Salvar Cores</button>
             <button className="btn-secondary" onClick={handleResetCores}>Resetar Padrão</button>
+          </div>
+        </div>
+      )}
+
+      {/* Impressora */}
+      {tab === 'impressora' && (
+        <div className="card">
+          <h3 style={{ marginBottom: 8 }}>Configuração de Impressora</h3>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+            Selecione a impressora para impressão automática dos recibos. Quando configurada, os recibos serão enviados diretamente sem abrir a caixa de diálogo do sistema.
+          </p>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 20 }}>
+            <button className="btn-secondary" disabled={loadingImpressoras} onClick={async () => {
+              setLoadingImpressoras(true);
+              try {
+                const lista = await window.electron.getPrinters();
+                setImpressoras(lista || []);
+              } catch { setImpressoras([]); }
+              setLoadingImpressoras(false);
+            }}>
+              {loadingImpressoras ? 'Buscando...' : 'Buscar Impressoras'}
+            </button>
+            {impressoras.length > 0 && (
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{impressoras.length} impressora(s) encontrada(s)</span>
+            )}
+          </div>
+
+          {impressoras.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Impressora para Recibos</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflow: 'auto' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: !configs.impressora_padrao ? 'var(--accent)' + '22' : 'var(--bg-primary)', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)' }}>
+                  <input type="radio" name="impressora" value="" checked={!configs.impressora_padrao} onChange={() => setConfigs({ ...configs, impressora_padrao: '' })} />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>Padrão do sistema</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Abre a caixa de diálogo de impressão</div>
+                  </div>
+                </label>
+                {impressoras.map(imp => (
+                  <label key={imp.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: configs.impressora_padrao === imp.name ? 'var(--accent)' + '22' : 'var(--bg-primary)', borderRadius: 6, cursor: 'pointer', border: `1px solid ${configs.impressora_padrao === imp.name ? 'var(--accent)' : 'var(--border)'}` }}>
+                    <input type="radio" name="impressora" value={imp.name} checked={configs.impressora_padrao === imp.name} onChange={() => setConfigs({ ...configs, impressora_padrao: imp.name })} />
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{imp.displayName || imp.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                        {imp.isDefault ? 'Padrão do Windows · ' : ''}{imp.status === 0 ? 'Pronta' : 'Status desconhecido'}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {configs.impressora_padrao && (
+            <div style={{ padding: '10px 14px', background: 'var(--success)' + '22', border: '1px solid var(--success)', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>
+              Impressora selecionada: <strong>{configs.impressora_padrao}</strong>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn-success" onClick={async () => {
+              await window.api.put('/api/configuracoes', { impressora_padrao: configs.impressora_padrao || '' });
+              alert('Impressora salva!');
+            }}>Salvar</button>
+            {configs.impressora_padrao && (
+              <button className="btn-secondary" onClick={async () => {
+                const html = `<html><body style="font-family:monospace;text-align:center;padding:20px"><h2>Teste de Impressão</h2><p>PDV Loja de Roupas</p><p>${new Date().toLocaleString('pt-BR')}</p></body></html>`;
+                const res = await window.electron.printReceipt(html, configs.impressora_padrao);
+                if (res.success) alert('Página de teste enviada para a impressora!');
+                else alert('Falha ao imprimir: ' + (res.reason || 'erro desconhecido'));
+              }}>Imprimir Teste</button>
+            )}
           </div>
         </div>
       )}

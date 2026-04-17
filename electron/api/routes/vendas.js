@@ -43,16 +43,18 @@ module.exports = (db) => {
   });
 
   router.put('/vendas/:id', (req, res) => {
-    const { forma_pagamento, status, usuario_id } = req.body;
+    const { forma_pagamento, status, usuario_id, motivo_cancelamento } = req.body;
     const venda = db.findOne('vendas', { id: Number(req.params.id) });
-    db.update('vendas', req.params.id, { forma_pagamento, status });
+    const updateData = { forma_pagamento: forma_pagamento || venda?.forma_pagamento, status };
+    if (motivo_cancelamento) updateData.motivo_cancelamento = motivo_cancelamento;
+    db.update('vendas', req.params.id, updateData);
     if (status === 'cancelada' && venda && venda.status !== 'cancelada') {
       const u = usuario_id ? db.findOne('usuarios', { id: usuario_id }) : null;
       db.insert('log_acoes', {
         usuario_id: usuario_id || null,
         usuario_nome: u ? u.nome : 'Desconhecido',
         acao: 'Cancelamento de Venda',
-        detalhes: `Venda #${req.params.id} | Total: R$ ${Number(venda.total).toFixed(2)}`,
+        detalhes: `Venda #${req.params.id} | Total: R$ ${Number(venda.total).toFixed(2)}${motivo_cancelamento ? ` | Motivo: ${motivo_cancelamento}` : ''}`,
         criado_em: new Date().toISOString()
       });
     }
@@ -124,6 +126,15 @@ module.exports = (db) => {
         criado_em: now
       });
     }
+
+    const u = db.findOne('usuarios', { id: usuario_id });
+    db.insert('log_acoes', {
+      usuario_id,
+      usuario_nome: u ? u.nome : 'Desconhecido',
+      acao: 'Nova Venda',
+      detalhes: `Venda #${vendaId} | Total: R$ ${total.toFixed(2)} | ${itens.length} item(s) | ${forma_pagamento}`,
+      criado_em: now
+    });
 
     // Return full sale data
     const venda = db.findOne('vendas', { id: vendaId });

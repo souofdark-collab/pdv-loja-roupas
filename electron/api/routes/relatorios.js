@@ -238,7 +238,7 @@ module.exports = (db) => {
     vendas.forEach(v => {
       const uid = v.usuario_id || 'sem';
       if (!porUsuario[uid]) {
-        const u = usuarios.find(u => u.id === uid);
+        const u = uid !== 'sem' ? usuarios.find(u => u.id === Number(uid)) : null;
         porUsuario[uid] = { usuario_id: uid, nome: u ? u.nome : 'Desconhecido', qtd: 0, total: 0 };
       }
       porUsuario[uid].qtd++;

@@ -10,9 +10,16 @@ module.exports = (db) => {
     if (!user) {
       return res.status(401).json({ error: 'Usuário não encontrado' });
     }
-    if (!bcrypt.compareSync(senha, user.senha_hash)) {
+    if (!user.senha_hash || !bcrypt.compareSync(senha, user.senha_hash)) {
       return res.status(401).json({ error: 'Senha incorreta' });
     }
+    db.insert('log_acoes', {
+      usuario_id: user.id,
+      usuario_nome: user.nome,
+      acao: 'Login',
+      detalhes: `Cargo: ${user.cargo}`,
+      criado_em: new Date().toISOString()
+    });
     const { senha_hash, ...userWithoutPassword } = user;
     res.json(userWithoutPassword);
   });

@@ -11,7 +11,11 @@ export default function Produtos() {
   const [barcodeProduct, setBarcodeProduct] = useState(null);
   const [historicoPrecosModal, setHistoricoPrecosModal] = useState(null);
   const [historicoPrecos, setHistoricoPrecos] = useState([]);
+  const [scanMode, setScanMode] = useState(false);
+  const [scanInput, setScanInput] = useState('');
+  const [scanError, setScanError] = useState('');
   const svgRef = useRef(null);
+  const scanInputRef = useRef(null);
 
   useEffect(() => {
     loadData();
@@ -32,6 +36,30 @@ export default function Produtos() {
       }
     }
   }, [barcodeProduct]);
+
+  useEffect(() => {
+    if (scanMode) {
+      setScanInput('');
+      setScanError('');
+      setTimeout(() => scanInputRef.current?.focus(), 50);
+    }
+  }, [scanMode]);
+
+  const handleScanSubmit = (e) => {
+    e.preventDefault();
+    if (!scanInput.trim()) return;
+    const found = produtos.find(p => p.codigo_barras && p.codigo_barras === scanInput.trim());
+    if (found) {
+      setScanMode(false);
+      setScanInput('');
+      setScanError('');
+      handleOpenForm(found);
+    } else {
+      setScanError(`Produto não encontrado: "${scanInput}"`);
+      setScanInput('');
+      setTimeout(() => scanInputRef.current?.focus(), 50);
+    }
+  };
 
   const loadData = () => {
     window.api.get('/api/produtos').then(setProdutos);
@@ -85,7 +113,8 @@ export default function Produtos() {
 
   const handleDelete = async (id) => {
     if (confirm('Desativar este produto?')) {
-      await window.api.delete(`/api/produtos/${id}`);
+      const user = JSON.parse(localStorage.getItem('pdv_user'));
+      await window.api.delete(`/api/produtos/${id}`, { usuario_id: user?.id });
       loadData();
     }
   };
@@ -161,6 +190,41 @@ export default function Produtos() {
         </div>
       )}
 
+      {/* Scan Modal */}
+      {scanMode && (
+        <div className="modal-overlay" onClick={() => { setScanMode(false); setScanInput(''); setScanError(''); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380, textAlign: 'center' }}>
+            <div style={{ fontSize: 56, marginBottom: 8 }}>&#x1F4E6;</div>
+            <h2 style={{ marginBottom: 8 }}>Aguardando Leitura</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 24 }}>
+              Aproxime o leitor de código de barras do produto
+            </p>
+            <form onSubmit={handleScanSubmit}>
+              <input
+                ref={scanInputRef}
+                value={scanInput}
+                onChange={e => { setScanInput(e.target.value); setScanError(''); }}
+                placeholder="Código de barras..."
+                autoComplete="off"
+                style={{ textAlign: 'center', fontSize: 18, letterSpacing: 3, marginBottom: 8 }}
+              />
+              {scanError && (
+                <p style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 8 }}>{scanError}</p>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button type="button" className="btn-secondary" style={{ flex: 1 }}
+                  onClick={() => { setScanMode(false); setScanInput(''); setScanError(''); }}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>
+                  Buscar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Barcode Modal */}
       {barcodeProduct && (
         <div className="modal-overlay" onClick={() => setBarcodeProduct(null)}>
@@ -189,13 +253,7 @@ export default function Produtos() {
             style={{ fontSize: 16, padding: 12, flex: 1 }}
           />
           <button
-            onClick={() => {
-              if (search && /^\d+$/.test(search)) {
-                const found = produtos.find(p => p.codigo_barras && p.codigo_barras.includes(search));
-                if (found) handleOpenForm(found);
-                else alert('Produto com código de barras não encontrado');
-              }
-            }}
+            onClick={() => setScanMode(true)}
             title="Buscar por código de barras"
             style={{
               padding: '8px 12px',

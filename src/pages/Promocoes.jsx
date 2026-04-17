@@ -33,8 +33,11 @@ export default function Promocoes() {
         aplicavel_a: promocao.aplicavel_a,
         ativa: promocao.ativa
       });
-      // Load existing rules
-      window.api.get(`/api/promocoes/${promocao.id}/regras`).then(r => setRegras(r || [])).catch(() => setRegras([]));
+      // Load existing rules before showing form to avoid flicker
+      window.api.get(`/api/promocoes/${promocao.id}/regras`)
+        .then(r => { setRegras(r || []); setShowForm(true); })
+        .catch(() => { setRegras([]); setShowForm(true); });
+      return;
     } else {
       setEditingId(null);
       setForm({ nome: '', tipo: 'percentual', valor: '', inicio: '', fim: '', aplicavel_a: 'tudo', ativa: 1 });
@@ -49,7 +52,8 @@ export default function Promocoes() {
       await window.api.put(`/api/promocoes/${editingId}`, {
         ...form,
         valor: Number(form.valor),
-        ativa: Number(form.ativa)
+        ativa: Number(form.ativa),
+        regras: regras
       });
     } else {
       await window.api.post('/api/promocoes', {
@@ -136,7 +140,7 @@ export default function Promocoes() {
               </div>
             </div>
 
-            {!editingId && form.aplicavel_a !== 'tudo' && (
+            {form.aplicavel_a !== 'tudo' && (
               <div className="form-group">
                 <label>Regras</label>
                 {regras.map((regra, i) => (

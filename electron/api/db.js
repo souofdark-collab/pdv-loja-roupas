@@ -28,7 +28,13 @@ const db = {
   _load(table) {
     const file = path.join(DATA_DIR, `${table}.json`);
     if (fs.existsSync(file)) {
-      this._data[table] = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      try {
+        this._data[table] = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      } catch {
+        console.error(`[db] Arquivo ${table}.json corrompido, reiniciando tabela.`);
+        this._data[table] = [];
+        this._save(table);
+      }
     } else {
       this._data[table] = [];
     }
@@ -51,6 +57,11 @@ const db = {
         criado_em: new Date().toISOString()
       });
       this._save('usuarios');
+    } else {
+      let changed = false;
+      if (adminExists.ativo !== 1) { adminExists.ativo = 1; changed = true; }
+      if (!adminExists.senha_hash) { adminExists.senha_hash = bcrypt.hashSync('admin123', 10); changed = true; }
+      if (changed) this._save('usuarios');
     }
   },
   // Query helpers

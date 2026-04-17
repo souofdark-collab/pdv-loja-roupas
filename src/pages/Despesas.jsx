@@ -101,6 +101,7 @@ export default function Despesas({ user }) {
     if (r === 'mensal') return 'Mensal';
     if (r === 'quinzenal') return 'Quinzenal';
     if (r === 'anual') return 'Anual';
+    if (r === 'nenhuma' || !r) return 'Única';
     return '-';
   };
 

@@ -43,8 +43,11 @@ module.exports = (db) => {
   });
 
   router.put('/estoque/:id', (req, res) => {
-    const { quantidade, minimo } = req.body;
-    db.update('estoque', req.params.id, { quantidade, minimo });
+    const { quantidade, minimo, tamanho, cor } = req.body;
+    const update = { quantidade, minimo };
+    if (tamanho !== undefined) update.tamanho = tamanho;
+    if (cor !== undefined) update.cor = cor;
+    db.update('estoque', req.params.id, update);
     res.json(db.findOne('estoque', { id: Number(req.params.id) }));
   });
 
@@ -61,11 +64,22 @@ module.exports = (db) => {
     if (tipo === 'entrada') {
       db.update('estoque', estoque_id, { quantidade: item.quantidade + quantidade });
     } else if (tipo === 'saida') {
+      if (item.quantidade < quantidade) {
+        return res.status(400).json({ error: `Estoque insuficiente. Disponível: ${item.quantidade}, Solicitado: ${quantidade}` });
+      }
       db.update('estoque', estoque_id, { quantidade: item.quantidade - quantidade });
     } else if (tipo === 'ajuste') {
       db.update('estoque', estoque_id, { quantidade });
     }
 
+    const produto = db.select('produtos').find(p => p.id === item.produto_id);
+    db.insert('log_acoes', {
+      usuario_id: usuario_id || null,
+      usuario_nome: usuario_id ? (db.findOne('usuarios', { id: usuario_id }) || {}).nome || '' : 'Sistema',
+      acao: tipo === 'entrada' ? 'Entrada de Estoque' : tipo === 'saida' ? 'Saída de Estoque' : 'Ajuste de Estoque',
+      detalhes: `${produto ? produto.nome : `Estoque #${estoque_id}`} | Qtd: ${quantidade}${motivo ? ` | ${motivo}` : ''}`,
+      criado_em: new Date().toISOString()
+    });
     res.json({ id: result.lastInsertRowid, ...req.body });
   });
 

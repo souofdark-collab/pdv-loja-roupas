@@ -33,7 +33,7 @@ module.exports = (db) => {
     const categorias = db.select('despesas_categorias');
     const result = despesas.map(d => ({
       ...d,
-      categoria_nome: (categorias.find(c => c.id === d.categoria_id) || {}).nome || null
+      categoria_nome: (categorias.find(c => c.id === Number(d.categoria_id)) || {}).nome || null
     }));
     res.json(result.sort((a, b) => (b.data || '').localeCompare(a.data || '')));
   });
@@ -43,7 +43,7 @@ module.exports = (db) => {
     const result = db.insert('despesas', {
       descricao,
       valor: valor || 0,
-      categoria_id: categoria_id || null,
+      categoria_id: categoria_id ? Number(categoria_id) : null,
       recorrencia: recorrencia || 'nenhuma',
       vencimento: vencimento || null,
       data: new Date().toISOString().split('T')[0],
@@ -54,7 +54,7 @@ module.exports = (db) => {
 
   router.put('/despesas/:id', (req, res) => {
     const { descricao, valor, categoria_id, recorrencia, vencimento } = req.body;
-    db.update('despesas', req.params.id, { descricao, valor, categoria_id, recorrencia, vencimento });
+    db.update('despesas', req.params.id, { descricao, valor, categoria_id: categoria_id ? Number(categoria_id) : null, recorrencia, vencimento });
     res.json({ id: Number(req.params.id), ...req.body });
   });
 

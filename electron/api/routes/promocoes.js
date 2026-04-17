@@ -13,7 +13,11 @@ module.exports = (db) => {
     const promocoes = db.select('promocoes').filter(p =>
       p.ativa === 1 && (!p.inicio || p.inicio <= now) && (!p.fim || p.fim >= now)
     ).sort((a, b) => a.nome.localeCompare(b.nome));
-    res.json(promocoes);
+    const result = promocoes.map(p => ({
+      ...p,
+      regras: db.select('promocoes_regras').filter(r => r.promocao_id === p.id)
+    }));
+    res.json(result);
   });
 
   router.post('/promocoes', (req, res) => {
@@ -28,22 +32,38 @@ module.exports = (db) => {
     // Insert rules
     const regras = req.body.regras || [];
     for (const regra of regras) {
-      db.insert('promocoes_regras', {
-        promocao_id: promocaoId,
-        categoria_id: regra.categoria_id || null,
-        produto_id: regra.produto_id || null
-      });
+      if (regra.produto_id || regra.categoria_id) {
+        db.insert('promocoes_regras', {
+          promocao_id: promocaoId,
+          categoria_id: regra.categoria_id ? Number(regra.categoria_id) : null,
+          produto_id: regra.produto_id ? Number(regra.produto_id) : null
+        });
+      }
     }
 
     res.json({ id: promocaoId, ...req.body });
   });
 
   router.put('/promocoes/:id', (req, res) => {
-    const { nome, tipo, valor, inicio, fim, aplicavel_a, ativa } = req.body;
+    const { nome, tipo, valor, inicio, fim, aplicavel_a, ativa, regras } = req.body;
     db.update('promocoes', req.params.id, {
       nome, tipo, valor, inicio: inicio || null, fim: fim || null,
       aplicavel_a, ativa: ativa !== undefined ? ativa : 1
     });
+    // Update rules: delete existing then re-insert
+    if (Array.isArray(regras)) {
+      const existing = db.select('promocoes_regras').filter(r => r.promocao_id === Number(req.params.id));
+      for (const r of existing) db.delete('promocoes_regras', r.id);
+      for (const regra of regras) {
+        if (regra.produto_id || regra.categoria_id) {
+          db.insert('promocoes_regras', {
+            promocao_id: Number(req.params.id),
+            categoria_id: regra.categoria_id || null,
+            produto_id: regra.produto_id ? Number(regra.produto_id) : null
+          });
+        }
+      }
+    }
     res.json({ id: Number(req.params.id), ...req.body });
   });
 

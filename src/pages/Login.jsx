@@ -18,7 +18,11 @@ export default function Login({ onLogin }) {
         onLogin(res);
       }
     } catch (err) {
-      setError('Erro ao conectar com o servidor');
+      if (err?.status === 401) {
+        setError('Usuário ou senha incorretos');
+      } else {
+        setError('Erro ao conectar com o servidor. Verifique se o aplicativo está rodando corretamente.');
+      }
     }
     setLoading(false);
   };

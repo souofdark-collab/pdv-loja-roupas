@@ -70,8 +70,16 @@ function App() {
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
 
-  const openModal = (type) => setShowModal(type);
+  const pdvCartRef = React.useRef([]);
+
+  const openModal = (type) => { if (!showModal) setShowModal(type); };
   const closeModal = () => setShowModal(null);
+  const handleClosePDV = () => {
+    if (pdvCartRef.current.length > 0) {
+      if (!confirm('Fechar o PDV? Os itens do carrinho serão perdidos.')) return;
+    }
+    closeModal();
+  };
 
   const handleLogin = (userData) => {
     setUser(userData);
@@ -107,10 +115,10 @@ function App() {
 
       {/* PDV Modal */}
       {showModal === 'pdv' && (
-        <div className="modal-overlay" onClick={closeModal}>
+        <div className="modal-overlay" onClick={handleClosePDV}>
           <div className="modal" style={{ width: 780, maxWidth: '90vw', maxHeight: '95vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
-            <button className="btn-danger" style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px', zIndex: 1 }} onClick={closeModal}>Fechar</button>
-            <PDV user={user} onClose={closeModal} />
+            <button className="btn-danger" style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px', zIndex: 1 }} onClick={handleClosePDV}>Fechar</button>
+            <PDV user={user} onClose={closeModal} onCartChange={cart => { pdvCartRef.current = cart; }} />
           </div>
         </div>
       )}
@@ -118,7 +126,7 @@ function App() {
       {/* Vendas Geral Modal (F3) */}
       {showModal === 'vendas-geral' && (
         <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal" style={{ maxWidth: 900, width: '90%' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: 1200, width: '95vw' }} onClick={e => e.stopPropagation()}>
             <button className="btn-danger" style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px', zIndex: 1 }} onClick={closeModal}>Fechar</button>
             <Vendas onClose={closeModal} />
           </div>
@@ -128,7 +136,7 @@ function App() {
       {/* Vendas Hoje Modal (F1) */}
       {showModal === 'vendas-hoje' && (
         <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal" style={{ maxWidth: 900, width: '90%' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: 1200, width: '95vw' }} onClick={e => e.stopPropagation()}>
             <button className="btn-danger" style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px', zIndex: 1 }} onClick={closeModal}>Fechar</button>
             <VendasVendas filtro="hoje" onClose={closeModal} />
           </div>
@@ -138,7 +146,7 @@ function App() {
       {/* Vendas Semana Modal (F4) */}
       {showModal === 'vendas-semana' && (
         <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal" style={{ maxWidth: 900, width: '90%' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: 1200, width: '95vw' }} onClick={e => e.stopPropagation()}>
             <button className="btn-danger" style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px', zIndex: 1 }} onClick={closeModal}>Fechar</button>
             <VendasVendas filtro="semana" onClose={closeModal} />
           </div>
@@ -148,7 +156,7 @@ function App() {
       {/* Vendas Mês Modal (F5) */}
       {showModal === 'vendas-mes' && (
         <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal" style={{ maxWidth: 900, width: '90%' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: 1200, width: '95vw' }} onClick={e => e.stopPropagation()}>
             <button className="btn-danger" style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px', zIndex: 1 }} onClick={closeModal}>Fechar</button>
             <VendasVendas filtro="mes" onClose={closeModal} />
           </div>
@@ -162,9 +170,13 @@ function App() {
 function VendasVendas({ filtro, onClose }) {
   const [vendas, setVendas] = useState([]);
   const [selectedVenda, setSelectedVenda] = useState(null);
-  const [clientes, setClientes] = useState([]);
+  const [cancelModal, setCancelModal] = useState(null);
+  const [loginAdmin, setLoginAdmin] = useState('');
+  const [senhaAdmin, setSenhaAdmin] = useState('');
+  const [motivoCancelamento, setMotivoCancelamento] = useState('');
+  const [senhaErro, setSenhaErro] = useState('');
 
-  useEffect(() => {
+  const loadVendas = () => {
     const now = new Date();
     let inicio, fim;
     if (filtro === 'hoje') {
@@ -180,13 +192,53 @@ function VendasVendas({ filtro, onClose }) {
       fim = now.toISOString().split('T')[0];
     }
     window.api.get(`/api/vendas?inicio=${inicio}&fim=${fim}`).then(setVendas);
-    window.api.get('/api/clientes').then(setClientes);
-  }, [filtro]);
+  };
+
+  useEffect(() => { loadVendas(); }, [filtro]);
 
   const formatCurrency = (v) => `R$ ${Number(v).toFixed(2)}`;
   const totalFaturado = vendas.filter(v => v.status !== 'cancelada').reduce((s, v) => s + Number(v.total), 0);
-
   const titulo = filtro === 'hoje' ? 'Vendas Hoje' : filtro === 'semana' ? 'Vendas na Semana' : 'Vendas no Mês';
+
+  const openCancelModal = (venda) => {
+    setMotivoCancelamento('');
+    setLoginAdmin('');
+    setSenhaAdmin('');
+    setSenhaErro('');
+    setCancelModal(venda);
+  };
+
+  const closeCancelModal = () => {
+    setCancelModal(null);
+    setSenhaAdmin('');
+    setLoginAdmin('');
+    setSenhaErro('');
+    setMotivoCancelamento('');
+  };
+
+  const handleConfirmarCancelamento = async () => {
+    setSenhaErro('');
+    if (!motivoCancelamento.trim()) { setSenhaErro('Informe o motivo do cancelamento.'); return; }
+    if (!loginAdmin.trim()) { setSenhaErro('Informe o login do administrador.'); return; }
+    try {
+      const res = await window.api.post('/api/login', { login: loginAdmin.trim(), senha: senhaAdmin });
+      if (res && res.cargo === 'admin') {
+        const user = JSON.parse(localStorage.getItem('pdv_user'));
+        await window.api.put(`/api/vendas/${cancelModal.id}`, {
+          forma_pagamento: cancelModal.forma_pagamento,
+          status: 'cancelada',
+          usuario_id: user?.id,
+          motivo_cancelamento: motivoCancelamento.trim()
+        });
+        closeCancelModal();
+        loadVendas();
+      } else {
+        setSenhaErro('Usuário não tem permissão de administrador.');
+      }
+    } catch {
+      setSenhaErro('Login ou senha incorretos.');
+    }
+  };
 
   return (
     <div>
@@ -194,8 +246,44 @@ function VendasVendas({ filtro, onClose }) {
       <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
         {vendas.length} vendas | Faturado: {formatCurrency(totalFaturado)}
       </p>
+
+      {cancelModal && (
+        <div className="modal-overlay" onClick={closeCancelModal} style={{ position: 'fixed' }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <h3 style={{ marginBottom: 12, color: 'var(--danger)' }}>Cancelar Venda #{cancelModal.id}</h3>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Esta ação é irreversível. Informe o motivo e as credenciais de um administrador.
+            </p>
+            <div className="form-group">
+              <label>Motivo do Cancelamento *</label>
+              <textarea
+                value={motivoCancelamento}
+                onChange={e => { setMotivoCancelamento(e.target.value); setSenhaErro(''); }}
+                rows={2}
+                placeholder="Descreva o motivo do cancelamento"
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
+              <label>Login do Administrador</label>
+              <input value={loginAdmin} onChange={e => { setLoginAdmin(e.target.value); setSenhaErro(''); }} placeholder="ex: admin" />
+            </div>
+            <div className="form-group">
+              <label>Senha</label>
+              <input type="password" value={senhaAdmin} onChange={e => { setSenhaAdmin(e.target.value); setSenhaErro(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleConfirmarCancelamento()} placeholder="Senha do administrador" />
+              {senhaErro && <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4 }}>{senhaErro}</p>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={closeCancelModal}>Voltar</button>
+              <button className="btn-danger" style={{ flex: 1 }} onClick={handleConfirmarCancelamento}>Confirmar Cancelamento</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-        <table>
+        <table style={{ minWidth: 900 }}>
           <thead><tr><th>#</th><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Pagamento</th><th>Status</th><th>Total</th><th>Ações</th></tr></thead>
           <tbody>
             {vendas.map(v => (
@@ -211,7 +299,14 @@ function VendasVendas({ filtro, onClose }) {
                   {v.status === 'devolvida' && <span className="badge badge-warning">Devolvida</span>}
                 </td>
                 <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{formatCurrency(v.total)}</td>
-                <td><button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setSelectedVenda(v)}>Ver</button></td>
+                <td>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setSelectedVenda(v)}>Ver</button>
+                    {v.status === 'finalizada' && (
+                      <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openCancelModal(v)}>Cancelar</button>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

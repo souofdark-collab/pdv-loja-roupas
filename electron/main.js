@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
@@ -41,8 +41,13 @@ function startApiServer() {
   const routesDir = path.join(__dirname, 'api', 'routes');
   const routeFiles = fs.readdirSync(routesDir).filter(f => f.endsWith('.js'));
   for (const file of routeFiles) {
-    const route = require(path.join(routesDir, file));
-    apiApp.use('/api', route(db));
+    try {
+      const route = require(path.join(routesDir, file));
+      apiApp.use('/api', route(db));
+      console.log('[route] OK:', file);
+    } catch (e) {
+      console.error('[route] ERRO ao carregar', file, ':', e.message);
+    }
   }
 
   // Serve static frontend files if they exist
@@ -57,6 +62,10 @@ function startApiServer() {
 
   apiServer = apiApp.listen(API_PORT, () => {
     console.log(`API server running on http://localhost:${API_PORT}`);
+  });
+
+  apiServer.on('error', (err) => {
+    console.error('Erro no servidor API:', err.code, err.message);
   });
 }
 
@@ -87,9 +96,32 @@ function scheduleAutoBackup() {
   setInterval(doBackup, 24 * 60 * 60 * 1000); // a cada 24h
 }
 
+// Prevent multiple Electron instances
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('[Electron] Outra instância já está rodando. Encerrando.');
+  app.quit();
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 app.whenReady().then(() => {
-  startApiServer();
-  scheduleAutoBackup();
+  if (!gotTheLock) return;
+  try {
+    startApiServer();
+  } catch (e) {
+    console.error('[FATAL] startApiServer falhou:', e.message, e.stack);
+  }
+  try {
+    scheduleAutoBackup();
+  } catch (e) {
+    console.error('[FATAL] scheduleAutoBackup falhou:', e.message);
+  }
   createWindow();
 
   app.on('activate', () => {
@@ -107,6 +139,32 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.handle('dialog:print', async (event, content) => {
-  // Simple print simulation - in production would use actual printer
   return { success: true };
+});
+
+ipcMain.handle('get-printers', async () => {
+  try {
+    return await mainWindow.webContents.getPrintersAsync();
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('print-receipt', async (event, html, printerName) => {
+  return new Promise((resolve) => {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: { nodeIntegration: false, contextIsolation: true }
+    });
+    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    win.webContents.once('did-finish-load', () => {
+      win.webContents.print(
+        { silent: true, deviceName: printerName || '', printBackground: false },
+        (success, reason) => {
+          win.close();
+          resolve({ success, reason });
+        }
+      );
+    });
+  });
 });
