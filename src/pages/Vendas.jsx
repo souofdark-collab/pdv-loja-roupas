@@ -36,24 +36,25 @@ export default function Vendas() {
     loadData();
   };
 
+  const [loginAdmin, setLoginAdmin] = useState('');
+
   const handleConfirmarCancelamento = async () => {
     setSenhaErro('');
+    if (!loginAdmin.trim()) { setSenhaErro('Informe o login do administrador.'); return; }
     try {
-      const res = await window.api.post('/api/auth/login', {
-        login: 'admin',
-        senha: senhaAdmin
-      });
+      const res = await window.api.post('/api/login', { login: loginAdmin.trim(), senha: senhaAdmin });
       if (res && res.cargo === 'admin') {
         const user = JSON.parse(localStorage.getItem('pdv_user'));
         await window.api.put(`/api/vendas/${cancelModal.vendaId}`, { ...cancelModal.formData, usuario_id: user?.id });
         setCancelModal(null);
         setSenhaAdmin('');
+        setLoginAdmin('');
         loadData();
       } else {
-        setSenhaErro('Acesso negado.');
+        setSenhaErro('Usuário não tem permissão de administrador.');
       }
     } catch {
-      setSenhaErro('Senha incorreta ou usuário não é administrador.');
+      setSenhaErro('Login ou senha incorretos.');
     }
   };
 
@@ -65,25 +66,34 @@ export default function Vendas() {
 
       {/* Modal confirmação cancelamento com senha */}
       {cancelModal && (
-        <div className="modal-overlay" onClick={() => { setCancelModal(null); setSenhaAdmin(''); setSenhaErro(''); }}>
+        <div className="modal-overlay" onClick={() => { setCancelModal(null); setSenhaAdmin(''); setLoginAdmin(''); setSenhaErro(''); }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <h3 style={{ marginBottom: 12, color: 'var(--danger)' }}>Cancelar Venda #{cancelModal.vendaId}</h3>
             <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
-              Esta ação é irreversível. Informe a senha do administrador para confirmar.
+              Esta ação é irreversível. Informe as credenciais de um administrador para confirmar.
             </p>
             <div className="form-group">
-              <label>Senha do Administrador</label>
+              <label>Login do Administrador</label>
+              <input
+                value={loginAdmin}
+                onChange={e => { setLoginAdmin(e.target.value); setSenhaErro(''); }}
+                autoFocus
+                placeholder="ex: admin"
+              />
+            </div>
+            <div className="form-group">
+              <label>Senha</label>
               <input
                 type="password"
                 value={senhaAdmin}
                 onChange={e => { setSenhaAdmin(e.target.value); setSenhaErro(''); }}
                 onKeyDown={e => e.key === 'Enter' && handleConfirmarCancelamento()}
-                autoFocus
+                placeholder="Senha do administrador"
               />
               {senhaErro && <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4 }}>{senhaErro}</p>}
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => { setCancelModal(null); setSenhaAdmin(''); setSenhaErro(''); }}>Voltar</button>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => { setCancelModal(null); setSenhaAdmin(''); setLoginAdmin(''); setSenhaErro(''); }}>Voltar</button>
               <button className="btn-danger" style={{ flex: 1 }} onClick={handleConfirmarCancelamento}>Confirmar Cancelamento</button>
             </div>
           </div>
