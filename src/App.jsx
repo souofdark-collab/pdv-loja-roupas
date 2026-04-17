@@ -17,6 +17,7 @@ import Configuracoes from './pages/Configuracoes';
 import FechamentoCaixa from './pages/FechamentoCaixa';
 import Trocas from './pages/Trocas';
 import Backup from './pages/Backup';
+import Auditoria from './pages/Auditoria';
 
 function applyTheme(cfg) {
   const root = document.documentElement.style;
@@ -100,6 +101,7 @@ function App() {
         <Route path="/fechamento" element={<FechamentoCaixa user={user} />} />
         <Route path="/trocas" element={<Trocas user={user} />} />
         <Route path="/backup" element={<Backup user={user} />} />
+        <Route path="/auditoria" element={<Auditoria />} />
         <Route path="/configuracoes" element={<Configuracoes user={user} />} />
       </Routes>
 

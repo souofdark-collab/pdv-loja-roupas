@@ -31,6 +31,11 @@ export default function Relatorios() {
         if (inicio) params.append('inicio', inicio);
         if (fim) params.append('fim', fim);
         res = await window.api.get(`/api/relatorios/produtos?${params}`);
+      } else if (tipoRelatorio === 'comissoes') {
+        const params = new URLSearchParams();
+        if (inicio) params.append('data_inicio', inicio);
+        if (fim) params.append('data_fim', fim);
+        res = await window.api.get(`/api/relatorios/comissoes?${params}`);
       }
       setData(res);
     } catch (err) {
@@ -58,6 +63,10 @@ export default function Relatorios() {
       title = 'Vendas por Vendedor';
       headers = ['Vendedor', 'Qtd Vendas', 'Total'];
       rows = data.map(v => [v.nome, v.qtd_vendas, formatCurrency(v.total)]);
+    } else if (tipoRelatorio === 'comissoes' && data.length) {
+      title = 'Relatório de Comissões';
+      headers = ['Vendedor', 'Comissão %', 'Qtd Vendas', 'Total Vendas', 'Comissão R$'];
+      rows = data.map(v => [v.nome, `${v.comissao_pct}%`, v.qtd_vendas, formatCurrency(v.total_vendas), formatCurrency(v.comissao_valor)]);
     }
     const footer = data.resumo ? `Total Geral: ${formatCurrency(data.resumo.total_geral)}` : `${rows.length} registros`;
     exportPDF({ title, headers, data: rows, footer, filename: `relatorio-${tipoRelatorio}-${new Date().toISOString().split('T')[0]}.pdf` });
@@ -109,6 +118,7 @@ export default function Relatorios() {
               <option value="mais-vendidos">Mais Vendidos</option>
               <option value="estoque-valor">Valor em Estoque</option>
               <option value="por-vendedor">Vendas por Vendedor</option>
+              <option value="comissoes">Comissões por Vendedor</option>
             </select>
           </div>
           <div className="form-group">
@@ -220,7 +230,34 @@ export default function Relatorios() {
             </>
           )}
 
-          {((tipoRelatorio === 'mais-vendidos' || tipoRelatorio === 'estoque-valor' || tipoRelatorio === 'por-vendedor') && data.length === 0) && (
+          {/* Comissões */}
+          {tipoRelatorio === 'comissoes' && Array.isArray(data) && data.length > 0 && (
+            <>
+              <h3 style={{ marginBottom: 16 }}>
+                Comissões por Vendedor
+                {inicio && fim && ` — ${new Date(inicio+'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(fim+'T00:00:00').toLocaleDateString('pt-BR')}`}
+              </h3>
+              <table>
+                <thead><tr><th>Vendedor</th><th>Comissão %</th><th>Qtd Vendas</th><th>Total Vendas</th><th>Comissão R$</th></tr></thead>
+                <tbody>
+                  {data.map(v => (
+                    <tr key={v.usuario_id}>
+                      <td><strong>{v.nome}</strong></td>
+                      <td>{v.comissao_pct}%</td>
+                      <td>{v.qtd_vendas}</td>
+                      <td>{formatCurrency(v.total_vendas)}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--success)' }}>{formatCurrency(v.comissao_valor)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 12, textAlign: 'right', fontWeight: 700, fontSize: 16 }}>
+                Total Comissões: {formatCurrency(data.reduce((s, v) => s + v.comissao_valor, 0))}
+              </div>
+            </>
+          )}
+
+          {((tipoRelatorio === 'mais-vendidos' || tipoRelatorio === 'estoque-valor' || tipoRelatorio === 'por-vendedor' || tipoRelatorio === 'comissoes') && Array.isArray(data) && data.length === 0) && (
             <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Sem dados para exibir</p>
           )}
           {tipoRelatorio === 'vendas' && data.vendas && data.vendas.length === 0 && (

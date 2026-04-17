@@ -31,8 +31,11 @@ export default function PDV({ user, onClose }) {
   const [showReceipt, setShowReceipt] = useState(false);
   const [searchActive, setSearchActive] = useState(false);
   const [descontoGlobal, setDescontoGlobal] = useState('');
-  const [descontoGlobalTipo, setDescontoGlobalTipo] = useState('percentual'); // 'percentual' or 'fixo'
+  const [descontoGlobalTipo, setDescontoGlobalTipo] = useState('percentual');
   const [barcodeMode, setBarcodeMode] = useState(false);
+  const [clienteSearch, setClienteSearch] = useState('');
+  const [vendedorSearch, setVendedorSearch] = useState('');
+  const [parcelas, setParcelas] = useState(1);
   const [formasPagamento, setFormasPagamento] = useState([]);
   const searchInputRef = useRef(null);
   const receiptRef = useRef(null);
@@ -54,7 +57,7 @@ export default function PDV({ user, onClose }) {
   useEffect(() => {
     const handler = (e) => {
       if (e.key === 'F2' && cart.length > 0) { e.preventDefault(); setShowCheckout(true); }
-      if (e.key === 'F4' && cart.length > 0) { e.preventDefault(); setCart([]); }
+      if (e.key === 'F4' && cart.length > 0) { e.preventDefault(); if (confirm('Cancelar venda? Todos os itens serão removidos do carrinho.')) setCart([]); }
       // Enter on numeric barcode search - auto-add to cart
       if (e.key === 'Enter' && searchTerm && /^\d+$/.test(searchTerm)) {
         e.preventDefault();
@@ -216,7 +219,8 @@ export default function PDV({ user, onClose }) {
           desconto_item: c.desconto_item || 0
         })),
         forma_pagamento: paymentMethod,
-        desconto: descontos
+        desconto: descontos,
+        parcelas: paymentMethod.toLowerCase().includes('crédito') ? parcelas : null
       });
       setCompletedSale(sale);
       const isDinheiro = cashFieldVisible;
@@ -442,16 +446,27 @@ export default function PDV({ user, onClose }) {
             </div>
 
             {showClientSelect && (
-              <div style={{ marginTop: 12, maxHeight: 200, overflow: 'auto' }}>
-                {clientes.map(c => (
-                  <div
-                    key={c.id}
-                    onClick={() => { setSelectedClient(c); setShowClientSelect(false); }}
-                    style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                  >
-                    {c.nome} {c.cpf && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>- {c.cpf}</span>}
-                  </div>
-                ))}
+              <div style={{ marginTop: 12 }}>
+                <input
+                  placeholder="Buscar cliente por nome ou CPF..."
+                  value={clienteSearch}
+                  onChange={e => setClienteSearch(e.target.value)}
+                  autoFocus
+                  style={{ marginBottom: 8 }}
+                />
+                <div style={{ maxHeight: 180, overflow: 'auto' }}>
+                  {clientes.filter(c =>
+                    !clienteSearch || c.nome.toLowerCase().includes(clienteSearch.toLowerCase()) || (c.cpf && c.cpf.includes(clienteSearch))
+                  ).map(c => (
+                    <div key={c.id} onClick={() => { setSelectedClient(c); setShowClientSelect(false); setClienteSearch(''); }}
+                      style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}>
+                      {c.nome} {c.cpf && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>- {c.cpf}</span>}
+                    </div>
+                  ))}
+                  {clientes.filter(c => !clienteSearch || c.nome.toLowerCase().includes(clienteSearch.toLowerCase()) || (c.cpf && c.cpf.includes(clienteSearch))).length === 0 && (
+                    <p style={{ padding: 8, color: 'var(--text-secondary)', fontSize: 13 }}>Nenhum cliente encontrado</p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -504,19 +519,27 @@ export default function PDV({ user, onClose }) {
             </div>
 
             {showVendedorSelect && (
-              <div style={{ marginTop: 12, maxHeight: 200, overflow: 'auto' }}>
+              <div style={{ marginTop: 12 }}>
                 {vendedores.length === 0 ? (
                   <p style={{ padding: '12px', color: 'var(--warning)', fontSize: 13 }}>Nenhum vendedor cadastrado. Cadastre em Usuários.</p>
                 ) : (
-                  vendedores.map(v => (
-                    <div
-                      key={v.id}
-                      onClick={() => { setSelectedVendedor(v); setShowVendedorSelect(false); }}
-                      style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                    >
-                      {v.nome} <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>- {v.login}</span>
+                  <>
+                    <input
+                      placeholder="Buscar vendedor..."
+                      value={vendedorSearch}
+                      onChange={e => setVendedorSearch(e.target.value)}
+                      autoFocus
+                      style={{ marginBottom: 8 }}
+                    />
+                    <div style={{ maxHeight: 180, overflow: 'auto' }}>
+                      {vendedores.filter(v => !vendedorSearch || v.nome.toLowerCase().includes(vendedorSearch.toLowerCase())).map(v => (
+                        <div key={v.id} onClick={() => { setSelectedVendedor(v); setShowVendedorSelect(false); setVendedorSearch(''); }}
+                          style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}>
+                          {v.nome} <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>- {v.login}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))
+                  </>
                 )}
               </div>
             )}
@@ -611,7 +634,7 @@ export default function PDV({ user, onClose }) {
               Finalizar Venda (F2)
             </button>
             {cart.length > 0 && (
-              <button className="btn-danger" onClick={() => setCart([])}>Cancelar (F4)</button>
+              <button className="btn-danger" onClick={() => { if (confirm('Cancelar venda? Todos os itens serão removidos do carrinho.')) setCart([]); }}>Cancelar (F4)</button>
             )}
           </div>
         </div>
@@ -672,6 +695,25 @@ export default function PDV({ user, onClose }) {
                 })}
               </div>
             </div>
+
+            {paymentMethod.toLowerCase().includes('crédito') && (
+              <div className="form-group" style={{ marginTop: 12 }}>
+                <label>Número de Parcelas</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                  {[1,2,3,4,5,6,8,10,12].map(n => (
+                    <button key={n} type="button"
+                      onClick={() => setParcelas(n)}
+                      style={{
+                        padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+                        background: parcelas === n ? 'var(--accent)' : 'var(--bg-card)',
+                        color: 'white', border: parcelas === n ? '2px solid var(--accent-hover)' : '2px solid transparent'
+                      }}>
+                      {n}x {n > 1 ? `= ${(total/n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="form-group" style={{ display: cashFieldVisible ? 'block' : 'none' }}>
               <label>Valor Recebido</label>

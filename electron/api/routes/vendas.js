@@ -43,13 +43,24 @@ module.exports = (db) => {
   });
 
   router.put('/vendas/:id', (req, res) => {
-    const { forma_pagamento, status } = req.body;
+    const { forma_pagamento, status, usuario_id } = req.body;
+    const venda = db.findOne('vendas', { id: Number(req.params.id) });
     db.update('vendas', req.params.id, { forma_pagamento, status });
+    if (status === 'cancelada' && venda && venda.status !== 'cancelada') {
+      const u = usuario_id ? db.findOne('usuarios', { id: usuario_id }) : null;
+      db.insert('log_acoes', {
+        usuario_id: usuario_id || null,
+        usuario_nome: u ? u.nome : 'Desconhecido',
+        acao: 'Cancelamento de Venda',
+        detalhes: `Venda #${req.params.id} | Total: R$ ${Number(venda.total).toFixed(2)}`,
+        criado_em: new Date().toISOString()
+      });
+    }
     res.json({ id: Number(req.params.id), ...req.body });
   });
 
   router.post('/vendas', (req, res) => {
-    const { cliente_id, usuario_id, itens, forma_pagamento, desconto } = req.body;
+    const { cliente_id, usuario_id, vendedor_id, itens, forma_pagamento, desconto, parcelas } = req.body;
 
     if (!usuario_id) return res.status(400).json({ error: 'Usuário obrigatório' });
     if (!forma_pagamento) return res.status(400).json({ error: 'Forma de pagamento obrigatória' });
@@ -81,8 +92,9 @@ module.exports = (db) => {
 
     const now = new Date().toISOString();
     const result = db.insert('vendas', {
-      cliente_id: cliente_id || null, usuario_id,
+      cliente_id: cliente_id || null, usuario_id, vendedor_id: vendedor_id || null,
       subtotal, desconto: descontoVal, total, forma_pagamento,
+      parcelas: parcelas || null,
       status: 'finalizada', data: now
     });
 

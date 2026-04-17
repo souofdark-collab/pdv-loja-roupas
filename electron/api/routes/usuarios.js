@@ -13,15 +13,15 @@ module.exports = (db) => {
   });
 
   router.post('/usuarios', (req, res) => {
-    const { nome, login, senha, cargo } = req.body;
+    const { nome, login, senha, cargo, comissao } = req.body;
     const hash = bcrypt.hashSync(senha, 10);
-    const result = db.insert('usuarios', { nome, login, senha_hash: hash, cargo: cargo || 'caixa', ativo: 1, criado_em: new Date().toISOString() });
-    res.json({ id: result.lastInsertRowid, nome, login, cargo: cargo || 'caixa' });
+    const result = db.insert('usuarios', { nome, login, senha_hash: hash, cargo: cargo || 'caixa', comissao: comissao || 0, ativo: 1, criado_em: new Date().toISOString() });
+    res.json({ id: result.lastInsertRowid, nome, login, cargo: cargo || 'caixa', comissao: comissao || 0 });
   });
 
   router.put('/usuarios/:id', (req, res) => {
-    const { nome, login, cargo, ativo, senha } = req.body;
-    const updates = { nome, login, cargo, ativo: ativo !== undefined ? ativo : 1 };
+    const { nome, login, cargo, ativo, senha, comissao } = req.body;
+    const updates = { nome, login, cargo, comissao: comissao !== undefined ? comissao : 0, ativo: ativo !== undefined ? ativo : 1 };
     if (senha) updates.senha_hash = bcrypt.hashSync(senha, 10);
     db.update('usuarios', req.params.id, updates);
     res.json({ id: Number(req.params.id), ...updates });

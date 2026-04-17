@@ -270,5 +270,58 @@ module.exports = (db) => {
     });
   });
 
+  // Relatório de comissões por vendedor
+  router.get('/relatorios/comissoes', (req, res) => {
+    const { data_inicio, data_fim } = req.query;
+    const inRange = (dateStr) => {
+      if (!dateStr) return false;
+      const d = dateStr.split('T')[0];
+      return (!data_inicio || d >= data_inicio) && (!data_fim || d <= data_fim);
+    };
+
+    const usuarios = db.select('usuarios');
+    const vendas = db.select('vendas').filter(v => v.status !== 'cancelada' && inRange(v.data));
+
+    const resultado = usuarios
+      .filter(u => u.ativo && u.comissao > 0)
+      .map(u => {
+        const vendasVendedor = vendas.filter(v => v.usuario_id === u.id || v.vendedor_id === u.id);
+        const totalVendas = vendasVendedor.reduce((s, v) => s + Number(v.total), 0);
+        const comissaoValor = totalVendas * (Number(u.comissao) / 100);
+        return {
+          usuario_id: u.id,
+          nome: u.nome,
+          cargo: u.cargo,
+          comissao_pct: u.comissao,
+          qtd_vendas: vendasVendedor.length,
+          total_vendas: totalVendas,
+          comissao_valor: comissaoValor
+        };
+      })
+      .filter(r => r.qtd_vendas > 0)
+      .sort((a, b) => b.comissao_valor - a.comissao_valor);
+
+    res.json(resultado);
+  });
+
+  // Alertas de estoque mínimo
+  router.get('/relatorios/estoque-minimo', (req, res) => {
+    const estoque = db.select('estoque').filter(e => e.quantidade <= e.minimo);
+    const produtos = db.select('produtos');
+    const result = estoque.map(e => {
+      const p = produtos.find(p => p.id === e.produto_id) || {};
+      return {
+        estoque_id: e.id,
+        produto_id: e.produto_id,
+        nome: p.nome || 'Produto removido',
+        tamanho: e.tamanho,
+        cor: e.cor,
+        quantidade: e.quantidade,
+        minimo: e.minimo
+      };
+    }).filter(e => e.nome !== 'Produto removido');
+    res.json(result);
+  });
+
   return router;
 };

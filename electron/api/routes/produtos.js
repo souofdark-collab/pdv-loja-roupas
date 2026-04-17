@@ -33,7 +33,29 @@ module.exports = (db) => {
   });
 
   router.put('/produtos/:id', (req, res) => {
-    const { nome, descricao, preco_custo, preco_venda, codigo_barras, categoria_id, ativo } = req.body;
+    const { nome, descricao, preco_custo, preco_venda, codigo_barras, categoria_id, ativo, usuario_id } = req.body;
+    const atual = db.findOne('produtos', { id: Number(req.params.id) });
+    if (atual && (Number(preco_custo) !== Number(atual.preco_custo) || Number(preco_venda) !== Number(atual.preco_venda))) {
+      db.insert('historico_precos', {
+        produto_id: Number(req.params.id),
+        produto_nome: atual.nome,
+        preco_custo_anterior: atual.preco_custo,
+        preco_venda_anterior: atual.preco_venda,
+        preco_custo_novo: preco_custo,
+        preco_venda_novo: preco_venda,
+        usuario_id: usuario_id || null,
+        criado_em: new Date().toISOString()
+      });
+      if (usuario_id) {
+        db.insert('log_acoes', {
+          usuario_id,
+          usuario_nome: (db.findOne('usuarios', { id: usuario_id }) || {}).nome || '',
+          acao: 'Alteração de Preço',
+          detalhes: `${atual.nome}: R$ ${atual.preco_venda} → R$ ${preco_venda}`,
+          criado_em: new Date().toISOString()
+        });
+      }
+    }
     db.update('produtos', req.params.id, { nome, descricao: descricao || '', preco_custo, preco_venda, codigo_barras: codigo_barras || '', categoria_id, ativo: ativo !== undefined ? ativo : 1 });
     res.json({ id: Number(req.params.id), ...req.body });
   });
@@ -41,6 +63,13 @@ module.exports = (db) => {
   router.delete('/produtos/:id', (req, res) => {
     db.update('produtos', req.params.id, { ativo: 0 });
     res.json({ success: true });
+  });
+
+  router.get('/produtos/:id/historico-precos', (req, res) => {
+    const historico = db.select('historico_precos')
+      .filter(h => h.produto_id === Number(req.params.id))
+      .sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em));
+    res.json(historico);
   });
 
   router.get('/produtos/buscar', (req, res) => {

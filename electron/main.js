@@ -61,8 +61,35 @@ function startApiServer() {
 }
 
 
+function scheduleAutoBackup() {
+  const DATA_DIR = path.join(process.env.APPDATA || process.env.HOME, 'pdv-loja-roupas');
+  const BACKUP_DIR = path.join(DATA_DIR, 'backups-auto');
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
+  const doBackup = () => {
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const dest = path.join(BACKUP_DIR, `backup-auto-${stamp}`);
+      fs.mkdirSync(dest, { recursive: true });
+      const files = fs.readdirSync(DATA_DIR).filter(f => f.endsWith('.json'));
+      files.forEach(f => fs.copyFileSync(path.join(DATA_DIR, f), path.join(dest, f)));
+      // Keep only last 7 auto backups
+      const existing = fs.readdirSync(BACKUP_DIR).sort();
+      if (existing.length > 7) {
+        existing.slice(0, existing.length - 7).forEach(d => {
+          fs.rmSync(path.join(BACKUP_DIR, d), { recursive: true, force: true });
+        });
+      }
+    } catch (e) { console.error('Backup automático falhou:', e); }
+  };
+
+  doBackup(); // backup ao iniciar
+  setInterval(doBackup, 24 * 60 * 60 * 1000); // a cada 24h
+}
+
 app.whenReady().then(() => {
   startApiServer();
+  scheduleAutoBackup();
   createWindow();
 
   app.on('activate', () => {

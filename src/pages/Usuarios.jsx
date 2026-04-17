@@ -4,7 +4,7 @@ export default function Usuarios({ user }) {
   const [usuarios, setUsuarios] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ nome: '', login: '', senha: '', cargo: 'caixa' });
+  const [form, setForm] = useState({ nome: '', login: '', senha: '', cargo: 'caixa', comissao: 0 });
 
   useEffect(() => {
     loadData();
@@ -17,10 +17,10 @@ export default function Usuarios({ user }) {
   const handleOpenForm = (u = null) => {
     if (u) {
       setEditingId(u.id);
-      setForm({ nome: u.nome, login: u.login, senha: '', cargo: u.cargo });
+      setForm({ nome: u.nome, login: u.login, senha: '', cargo: u.cargo, comissao: u.comissao || 0 });
     } else {
       setEditingId(null);
-      setForm({ nome: '', login: '', senha: '', cargo: 'caixa' });
+      setForm({ nome: '', login: '', senha: '', cargo: 'caixa', comissao: 0 });
     }
     setShowForm(true);
   };
@@ -28,13 +28,13 @@ export default function Usuarios({ user }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (editingId) {
-      const data = { nome: form.nome, login: form.login, cargo: form.cargo };
+      const data = { nome: form.nome, login: form.login, cargo: form.cargo, comissao: Number(form.comissao) || 0 };
       if (form.senha) data.senha = form.senha;
       await window.api.put(`/api/usuarios/${editingId}`, data);
     } else {
       await window.api.post('/api/usuarios', form);
     }
-    setForm({ nome: '', login: '', senha: '', cargo: 'caixa' });
+    setForm({ nome: '', login: '', senha: '', cargo: 'caixa', comissao: 0 });
     setShowForm(false);
     setEditingId(null);
     loadData();
@@ -85,6 +85,12 @@ export default function Usuarios({ user }) {
                   <option value="admin">Administrador</option>
                 </select>
               </div>
+              <div className="form-group">
+                <label>Comissão (%)</label>
+                <input type="number" min="0" max="100" step="0.5" value={form.comissao}
+                  onChange={e => setForm({...form, comissao: e.target.value})}
+                  placeholder="0" />
+              </div>
             </div>
             <button type="submit" className="btn-success">{editingId ? 'Atualizar Usuário' : 'Salvar Usuário'}</button>
           </form>
@@ -99,13 +105,14 @@ export default function Usuarios({ user }) {
 
       <div className="card">
         <table>
-          <thead><tr><th>Nome</th><th>Login</th><th>Cargo</th><th>Status</th><th>Criado em</th><th>Ações</th></tr></thead>
+          <thead><tr><th>Nome</th><th>Login</th><th>Cargo</th><th>Comissão</th><th>Status</th><th>Criado em</th><th>Ações</th></tr></thead>
           <tbody>
             {usuarios.map(u => (
               <tr key={u.id}>
                 <td>{u.nome}</td>
                 <td>{u.login}</td>
                 <td>{u.cargo === 'admin' ? 'Administrador' : u.cargo === 'vendedor' ? 'Vendedor' : 'Caixa'}</td>
+                <td>{u.comissao > 0 ? `${u.comissao}%` : '-'}</td>
                 <td>
                   {u.ativo ? <span className="badge badge-success">Ativo</span> : <span className="badge badge-danger">Inativo</span>}
                 </td>

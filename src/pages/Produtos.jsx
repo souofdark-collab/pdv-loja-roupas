@@ -9,6 +9,8 @@ export default function Produtos() {
   const [form, setForm] = useState({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', categoria_id: '' });
   const [search, setSearch] = useState('');
   const [barcodeProduct, setBarcodeProduct] = useState(null);
+  const [historicoPrecosModal, setHistoricoPrecosModal] = useState(null);
+  const [historicoPrecos, setHistoricoPrecos] = useState([]);
   const svgRef = useRef(null);
 
   useEffect(() => {
@@ -54,9 +56,16 @@ export default function Produtos() {
     setShowForm(true);
   };
 
+  const openHistoricoPrecos = async (produto) => {
+    setHistoricoPrecosModal(produto);
+    const hist = await window.api.get(`/api/produtos/${produto.id}/historico-precos`);
+    setHistoricoPrecos(hist);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const data = { ...form, preco_custo: Number(form.preco_custo), preco_venda: Number(form.preco_venda), categoria_id: form.categoria_id || null };
+    const user = JSON.parse(localStorage.getItem('pdv_user'));
+    const data = { ...form, preco_custo: Number(form.preco_custo), preco_venda: Number(form.preco_venda), categoria_id: form.categoria_id || null, usuario_id: user?.id };
     if (editingId) {
       await window.api.put(`/api/produtos/${editingId}`, data);
     } else {
@@ -222,6 +231,9 @@ export default function Produtos() {
                   <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(p)}>
                     Editar
                   </button>
+                  <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openHistoricoPrecos(p)}>
+                    Preços
+                  </button>
                   <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(p.id)}>
                     Excluir
                   </button>
@@ -232,6 +244,34 @@ export default function Produtos() {
         </table>
         {filtered.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhum produto encontrado</p>}
       </div>
+
+      {/* Modal histórico de preços */}
+      {historicoPrecosModal && (
+        <div className="modal-overlay" onClick={() => { setHistoricoPrecosModal(null); setHistoricoPrecos([]); }}>
+          <div className="modal" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: 16 }}>Histórico de Preços — {historicoPrecosModal.nome}</h3>
+            {historicoPrecos.length === 0 ? (
+              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: 20 }}>Nenhuma alteração de preço registrada</p>
+            ) : (
+              <table>
+                <thead><tr><th>Data</th><th>Custo Anterior</th><th>Custo Novo</th><th>Venda Anterior</th><th>Venda Nova</th></tr></thead>
+                <tbody>
+                  {historicoPrecos.map(h => (
+                    <tr key={h.id}>
+                      <td style={{ fontSize: 12 }}>{new Date(h.criado_em).toLocaleString('pt-BR')}</td>
+                      <td>{formatCurrency(h.preco_custo_anterior)}</td>
+                      <td style={{ color: 'var(--accent)', fontWeight: 600 }}>{formatCurrency(h.preco_custo_novo)}</td>
+                      <td>{formatCurrency(h.preco_venda_anterior)}</td>
+                      <td style={{ color: 'var(--accent)', fontWeight: 600 }}>{formatCurrency(h.preco_venda_novo)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => { setHistoricoPrecosModal(null); setHistoricoPrecos([]); }}>Fechar</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

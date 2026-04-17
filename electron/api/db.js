@@ -13,7 +13,7 @@ const TABLES = [
   'venda_itens', 'promocoes', 'promocoes_regras',
   'despesas_categorias', 'despesas',
   'configuracoes', 'formas_pagamento',
-  'trocas'
+  'trocas', 'historico_precos', 'log_acoes', 'abertura_caixa'
 ];
 
 // In-memory storage
