@@ -8,7 +8,8 @@ module.exports = (db) => {
     const produtos = db.select('produtos');
     const result = items.map(e => {
       const p = produtos.find(pr => pr.id === e.produto_id);
-      return { ...e, produto_nome: p ? p.nome : '', codigo_barras: p ? p.codigo_barras : '' };
+      const bcProduto = p ? p.codigo_barras : '';
+      return { ...e, produto_nome: p ? p.nome : '', codigo_barras: e.codigo_barras || bcProduto, codigo_barras_produto: bcProduto };
     });
     res.json(result);
   });
@@ -43,10 +44,11 @@ module.exports = (db) => {
   });
 
   router.put('/estoque/:id', (req, res) => {
-    const { quantidade, minimo, tamanho, cor } = req.body;
+    const { quantidade, minimo, tamanho, cor, codigo_barras } = req.body;
     const update = { quantidade, minimo };
     if (tamanho !== undefined) update.tamanho = tamanho;
     if (cor !== undefined) update.cor = cor;
+    if (codigo_barras !== undefined) update.codigo_barras = codigo_barras;
     db.update('estoque', req.params.id, update);
     res.json(db.findOne('estoque', { id: Number(req.params.id) }));
   });
