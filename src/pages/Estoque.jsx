@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { exportPDF } from '../utils/pdfExport';
 
-const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46'];
+const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG', '36', '38', '40', '42', '44', '46'];
 
 export default function Estoque() {
   const [estoque, setEstoque] = useState([]);
@@ -26,14 +26,15 @@ export default function Estoque() {
       setEditingId(item.id);
       setForm({
         produto_id: item.produto_id,
-        tamanho: item.tamanho,
-        cor: item.cor,
+        tamanho: item.tamanho || '',
+        cor: item.cor || '',
         quantidade: item.quantidade,
-        minimo: item.minimo
+        minimo: item.minimo,
+        codigo_barras: item.codigo_barras || ''
       });
     } else {
       setEditingId(null);
-      setForm({ produto_id: '', tamanho: 'M', cor: '', quantidade: '', minimo: '5' });
+      setForm({ produto_id: '', tamanho: 'M', cor: '', quantidade: '', minimo: '5', codigo_barras: '' });
     }
     setShowForm(true);
   };
@@ -41,11 +42,11 @@ export default function Estoque() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (editingId) {
-      await window.api.put(`/api/estoque/${editingId}`, { quantidade: Number(form.quantidade), minimo: Number(form.minimo), tamanho: form.tamanho, cor: form.cor });
+      await window.api.put(`/api/estoque/${editingId}`, { quantidade: Number(form.quantidade), minimo: Number(form.minimo), tamanho: form.tamanho, cor: form.cor, codigo_barras: form.codigo_barras });
     } else {
       await window.api.post('/api/estoque', { ...form, quantidade: Number(form.quantidade), minimo: Number(form.minimo) });
     }
-    setForm({ produto_id: '', tamanho: 'M', cor: '', quantidade: '', minimo: '5' });
+    setForm({ produto_id: '', tamanho: 'M', cor: '', quantidade: '', minimo: '5', codigo_barras: '' });
     setShowForm(false);
     setEditingId(null);
     loadData();
@@ -60,11 +61,14 @@ export default function Estoque() {
     loadData();
   };
 
+  const [modal, setModal] = useState(null);
+  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
+
   const handleDelete = async (id) => {
-    if (confirm('Excluir este item do estoque?')) {
+    askConfirm('Excluir este item do estoque?', async () => {
       await window.api.delete(`/api/estoque/${id}`);
       loadData();
-    }
+    });
   };
 
   return (
@@ -118,6 +122,10 @@ export default function Estoque() {
               <div className="form-group">
                 <label>Mínimo</label>
                 <input type="number" value={form.minimo} onChange={e => setForm({...form, minimo: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Código de Barras</label>
+                <input value={form.codigo_barras} onChange={e => setForm({...form, codigo_barras: e.target.value})} placeholder="Gerado automaticamente" />
               </div>
             </div>
             <button type="submit" className="btn-success">{editingId ? 'Atualizar' : 'Salvar'}</button>
@@ -191,37 +199,52 @@ export default function Estoque() {
         </div>
       </div>
       <div className="card">
-        <table>
-          <thead>
-            <tr><th>Produto</th><th>Tamanho</th><th>Cor</th><th>Quantidade</th><th>Mínimo</th><th>Status</th><th>Ações</th></tr>
-          </thead>
-          <tbody>
-            {estoque.map(e => (
-              <tr key={e.id}>
-                <td>{e.produto_nome}</td>
-                <td>{e.tamanho}</td>
-                <td>{e.cor}</td>
-                <td style={{ fontWeight: 600 }}>{e.quantidade}</td>
-                <td>{e.minimo}</td>
-                <td>
-                  {e.quantidade <= 0 && <span className="badge badge-danger">Sem estoque</span>}
-                  {e.quantidade > 0 && e.quantidade <= e.minimo && <span className="badge badge-warning">Baixo</span>}
-                  {e.quantidade > e.minimo && <span className="badge badge-success">OK</span>}
-                </td>
-                <td style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(e)}>
-                    Editar
-                  </button>
-                  <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(e.id)}>
-                    Excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {estoque.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhum item em estoque</p>}
+        <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+          <table>
+            <thead>
+              <tr><th>Produto</th><th>Tamanho</th><th>Cor</th><th>Qtd</th><th>Mín</th><th>Cód. Barras</th><th>Status</th><th>Ações</th></tr>
+            </thead>
+            <tbody>
+              {estoque.map(e => (
+                <tr key={e.id}>
+                  <td>{e.produto_nome}</td>
+                  <td>{e.tamanho || '-'}</td>
+                  <td>{e.cor || '-'}</td>
+                  <td style={{ fontWeight: 600 }}>{e.quantidade}</td>
+                  <td>{e.minimo}</td>
+                  <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{e.codigo_barras || '-'}</td>
+                  <td>
+                    {e.quantidade <= 0 && <span className="badge badge-danger">Sem estoque</span>}
+                    {e.quantidade > 0 && e.quantidade <= e.minimo && <span className="badge badge-warning">Baixo</span>}
+                    {e.quantidade > e.minimo && <span className="badge badge-success">OK</span>}
+                  </td>
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(e)}>
+                      Editar
+                    </button>
+                    <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(e.id)}>
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {estoque.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhum item em estoque</p>}
+        </div>
       </div>
+
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
