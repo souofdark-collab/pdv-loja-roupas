@@ -11,6 +11,7 @@ export default function Estoque() {
   const [form, setForm] = useState({ produto_id: '', tamanho: 'M', cor: '', quantidade: '', minimo: '5' });
   const [showMovForm, setShowMovForm] = useState(false);
   const [movForm, setMovForm] = useState({ estoque_id: '', tipo: 'entrada', quantidade: '', motivo: '' });
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     loadData();
@@ -70,6 +71,15 @@ export default function Estoque() {
       loadData();
     });
   };
+
+  const filteredEstoque = estoque.filter(e => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (e.produto_nome || '').toLowerCase().includes(q) ||
+      (e.tamanho || '').toLowerCase().includes(q) ||
+      (e.cor || '').toLowerCase().includes(q) ||
+      (e.codigo_barras || '').includes(search);
+  });
 
   return (
     <div>
@@ -170,6 +180,12 @@ export default function Estoque() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <h3>Itens em Estoque</h3>
         <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            placeholder="Buscar por produto, tamanho, cor ou cód. barras..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: 300 }}
+          />
           <button className="btn-secondary" onClick={() => {
             let csv = 'Produto,Tamanho,Cor,Quantidade,Mínimo,Status\n';
             estoque.forEach(e => {
@@ -205,7 +221,7 @@ export default function Estoque() {
               <tr><th>Produto</th><th>Tamanho</th><th>Cor</th><th>Qtd</th><th>Mín</th><th>Cód. Barras</th><th>Status</th><th>Ações</th></tr>
             </thead>
             <tbody>
-              {estoque.map(e => (
+              {filteredEstoque.map(e => (
                 <tr key={e.id}>
                   <td>{e.produto_nome}</td>
                   <td>{e.tamanho || '-'}</td>
@@ -230,7 +246,7 @@ export default function Estoque() {
               ))}
             </tbody>
           </table>
-          {estoque.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhum item em estoque</p>}
+          {filteredEstoque.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>{search ? 'Nenhum item encontrado' : 'Nenhum item em estoque'}</p>}
         </div>
       </div>
 
