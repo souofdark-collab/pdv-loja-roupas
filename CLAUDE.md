@@ -235,6 +235,44 @@ Botões primários usam `background: var(--btn-bg, var(--accent))`.
 
 ---
 
+## Regra Obrigatória — Dialogs no Electron
+
+**NUNCA use `window.confirm()`, `window.alert()` ou `window.prompt()` neste projeto.**
+
+Qualquer dialog nativo do Electron causa perda de foco no OS ao ser fechado — o teclado para de funcionar em todos os campos até o usuário clicar na janela novamente. Este bug já ocorreu em **todas** as páginas e foi corrigido com custo alto.
+
+### Padrão obrigatório para confirmações e alertas
+
+Sempre use o padrão de modal React com `useState`:
+
+```jsx
+const [modal, setModal] = useState(null);
+const showAlert  = (msg)     => { document.activeElement?.blur(); setModal({ msg }); };
+const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
+```
+
+JSX do modal (colocar no final do return, antes do `</div>` fechador):
+
+```jsx
+{modal && (
+  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+    <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+      <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
+      {modal.onConfirm ? (
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+          <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+          <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+        </div>
+      ) : <button className="btn-primary" onClick={() => setModal(null)}>OK</button>}
+    </div>
+  </div>
+)}
+```
+
+Para `prompt()` (input do usuário), adicione `inputValue` ao estado e um `<input>` no modal — veja `Trocas.jsx` como referência.
+
+---
+
 ## Problemas Conhecidos / Histórico de Bugs
 
 ### Dupla instância Electron (RESOLVIDO)
