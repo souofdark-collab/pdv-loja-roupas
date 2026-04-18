@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useModal } from '../components/Modal';
 
 export default function Promocoes() {
   const [promocoes, setPromocoes] = useState([]);
@@ -10,8 +11,7 @@ export default function Promocoes() {
     nome: '', tipo: 'percentual', valor: '', inicio: '', fim: '', aplicavel_a: 'tudo', ativa: 1
   });
   const [regras, setRegras] = useState([]);
-  const [modal, setModal] = useState(null);
-  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
+  const { askConfirm, modalEl } = useModal();
 
   useEffect(() => {
     loadData();
@@ -212,17 +212,7 @@ export default function Promocoes() {
         </div>
       </div>
 
-      {modal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
-          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
-              <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {modalEl}
     </div>
   );
 }

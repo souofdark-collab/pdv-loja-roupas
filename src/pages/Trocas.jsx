@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { exportPDF } from '../utils/pdfExport';
+import { useModal } from '../components/Modal';
 
 export default function Trocas({ user }) {
   const [trocas, setTrocas] = useState([]);
@@ -10,7 +11,7 @@ export default function Trocas({ user }) {
     venda_id: '', produto_id: '', motivo: '', tipo: 'troca', novo_produto_id: '', observacao: ''
   });
   const [filter, setFilter] = useState('todas'); // 'todas', 'pendente', 'concluida', 'recusada'
-  const [modal, setModal] = useState(null);
+  const { askInput, modalEl } = useModal();
 
   useEffect(() => {
     loadData();
@@ -38,8 +39,10 @@ export default function Trocas({ user }) {
 
   const handleStatus = async (id, status) => {
     if (status === 'recusada') {
-      document.activeElement?.blur();
-      setModal({ id, inputValue: '' });
+      askInput('Motivo da recusa', async (motivo) => {
+        await window.api.put(`/api/trocas/${id}`, { status: 'recusada', observacao: motivo || undefined });
+        loadData();
+      }, { title: 'Recusar troca', placeholder: 'Digite o motivo...', confirmLabel: 'Confirmar', danger: true });
     } else {
       await window.api.put(`/api/trocas/${id}`, { status });
       loadData();
@@ -201,30 +204,7 @@ export default function Trocas({ user }) {
         </div>
       </div>
 
-      {modal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
-          <div className="card" style={{ maxWidth: 360, width: '90vw', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <p style={{ marginBottom: 12, fontSize: 15, fontWeight: 600 }}>Motivo da recusa</p>
-            <input
-              autoFocus
-              value={modal.inputValue}
-              onChange={e => setModal({ ...modal, inputValue: e.target.value })}
-              placeholder="Digite o motivo..."
-              style={{ width: '100%', marginBottom: 16 }}
-            />
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
-              <button className="btn-danger" onClick={async () => {
-                const motivo = modal.inputValue;
-                const id = modal.id;
-                setModal(null);
-                await window.api.put(`/api/trocas/${id}`, { status: 'recusada', observacao: motivo || undefined });
-                loadData();
-              }}>Confirmar</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {modalEl}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useModal } from '../components/Modal';
 
 const TABLES = [
   'usuarios', 'clientes', 'categorias', 'produtos',
@@ -19,8 +20,7 @@ export default function Backup({ user }) {
   const [wipeLogin, setWipeLogin] = useState('');
   const [wipeSenha, setWipeSenha] = useState('');
   const [wipeErro, setWipeErro] = useState('');
-  const [modal, setModal] = useState(null);
-  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
+  const { askConfirm, modalEl } = useModal();
 
   useEffect(() => {
     loadTablesInfo();
@@ -64,7 +64,7 @@ export default function Backup({ user }) {
         const text = await fileSelected.text();
         const backup = JSON.parse(text);
         if (!backup.data) { setStatus('Arquivo de backup inválido'); setLoading(false); return; }
-        await window.api.post('/api/backup/restore', { data: backup.data });
+        await window.api.post('/api/backup/restore', { data: backup.data, integrity: backup.integrity });
         setStatus('Backup restaurado com sucesso! Recarregando...');
         setTimeout(() => window.location.reload(), 2000);
       } catch (err) {
@@ -171,17 +171,7 @@ export default function Backup({ user }) {
         </button>
       </div>
 
-      {modal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
-          <div className="card" style={{ maxWidth: 400, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
-              <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {modalEl}
 
       {/* Tables Info */}
       <div className="card">

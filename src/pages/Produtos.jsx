@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import JsBarcode from 'jsbarcode';
+import { fuzzyMatch } from '../utils/fuzzySearch';
+import { useModal } from '../components/Modal';
 
 export default function Produtos() {
   const [produtos, setProdutos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', categoria_id: '' });
+  const [form, setForm] = useState({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', num_variacoes: 1, categoria_id: '' });
   const [search, setSearch] = useState('');
   const [barcodeProduct, setBarcodeProduct] = useState(null);
   const [historicoPrecosModal, setHistoricoPrecosModal] = useState(null);
@@ -48,7 +50,8 @@ export default function Produtos() {
   const handleScanSubmit = (e) => {
     e.preventDefault();
     if (!scanInput.trim()) return;
-    const found = produtos.find(p => p.codigo_barras && p.codigo_barras === scanInput.trim());
+    const bc = scanInput.trim();
+    const found = produtos.find(p => p.codigo_barras && p.codigo_barras === bc);
     if (found) {
       setScanMode(false);
       setScanInput('');
@@ -75,11 +78,12 @@ export default function Produtos() {
         preco_custo: produto.preco_custo || '',
         preco_venda: produto.preco_venda,
         codigo_barras: produto.codigo_barras || '',
+        num_variacoes: 1,
         categoria_id: produto.categoria_id || ''
       });
     } else {
       setEditingId(null);
-      setForm({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', categoria_id: '' });
+      setForm({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', num_variacoes: 1, categoria_id: '' });
     }
     setShowForm(true);
   };
@@ -93,13 +97,22 @@ export default function Produtos() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const user = JSON.parse(localStorage.getItem('pdv_user'));
-    const data = { ...form, preco_custo: Number(form.preco_custo), preco_venda: Number(form.preco_venda), categoria_id: form.categoria_id || null, usuario_id: user?.id };
+    const data = {
+      nome: form.nome,
+      descricao: form.descricao,
+      preco_custo: Number(form.preco_custo),
+      preco_venda: Number(form.preco_venda),
+      codigo_barras: form.codigo_barras,
+      num_variacoes: editingId ? undefined : Number(form.num_variacoes) || 1,
+      categoria_id: form.categoria_id || null,
+      usuario_id: user?.id
+    };
     if (editingId) {
       await window.api.put(`/api/produtos/${editingId}`, data);
     } else {
       await window.api.post('/api/produtos', data);
     }
-    setForm({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', categoria_id: '' });
+    setForm({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', num_variacoes: 1, categoria_id: '' });
     setShowForm(false);
     setEditingId(null);
     loadData();
@@ -107,16 +120,17 @@ export default function Produtos() {
 
   const generateBarcodeCode = () => {
     const random = Date.now().toString().slice(-10);
-    const code = `789${random}`;
-    setForm({ ...form, codigo_barras: code });
+    setForm({ ...form, codigo_barras: `789${random}` });
   };
 
+  const { askConfirm, modalEl } = useModal();
+
   const handleDelete = async (id) => {
-    if (confirm('Desativar este produto?')) {
+    askConfirm('Desativar este produto?', async () => {
       const user = JSON.parse(localStorage.getItem('pdv_user'));
       await window.api.delete(`/api/produtos/${id}`, { usuario_id: user?.id });
       loadData();
-    }
+    });
   };
 
   const generateBarcode = (produto) => {
@@ -130,7 +144,10 @@ export default function Produtos() {
   };
 
   const filtered = search
-    ? produtos.filter(p => p.nome.toLowerCase().includes(search.toLowerCase()) || (p.codigo_barras && p.codigo_barras.includes(search)))
+    ? produtos.filter(p =>
+        fuzzyMatch(p.nome, search) ||
+        (p.codigo_barras && p.codigo_barras.includes(search))
+      )
     : produtos;
 
   const formatCurrency = (v) => `R$ ${Number(v).toFixed(2)}`;
@@ -154,15 +171,27 @@ export default function Produtos() {
                 <input value={form.nome} onChange={e => setForm({...form, nome: e.target.value})} required />
               </div>
               <div className="form-group">
-                <label>Código de Barras</label>
+                <label>Código de Barras (modelo)</label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <input value={form.codigo_barras} onChange={e => setForm({...form, codigo_barras: e.target.value})} style={{ flex: 1 }} />
-                  <button type="button" className="btn-secondary" onClick={generateBarcodeCode} title="Gerar código de barras automaticamente"
-                    style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}>
-                    Gerar
-                  </button>
+                  <input value={form.codigo_barras} onChange={e => setForm({...form, codigo_barras: e.target.value})} style={{ flex: 1 }} placeholder="Opcional" />
+                  <button type="button" className="btn-secondary" onClick={generateBarcodeCode}
+                    style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}>Gerar</button>
                 </div>
               </div>
+              {!editingId && (
+                <div className="form-group" style={{ minWidth: 160 }}>
+                  <label>Variações a cadastrar *</label>
+                  <input
+                    type="number" min="1" max="200"
+                    value={form.num_variacoes}
+                    onChange={e => setForm({...form, num_variacoes: e.target.value})}
+                    required
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, display: 'block' }}>
+                    {form.num_variacoes > 1 ? `${form.num_variacoes} entradas criadas no estoque (barcode único cada)` : '1 entrada criada no estoque'}
+                  </span>
+                </div>
+              )}
             </div>
             <div className="form-group">
               <label>Descrição</label>
@@ -189,6 +218,8 @@ export default function Produtos() {
           </form>
         </div>
       )}
+
+      {modalEl}
 
       {/* Scan Modal */}
       {scanMode && (
@@ -270,37 +301,39 @@ export default function Produtos() {
             &#x1F4E6;
           </button>
         </div>
-        <table>
-          <thead>
-            <tr><th>Nome</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Código</th><th>Ações</th></tr>
-          </thead>
-          <tbody>
-            {filtered.map(p => (
-              <tr key={p.id}>
-                <td>{p.nome}</td>
-                <td>{p.categoria_nome || '-'}</td>
-                <td>{formatCurrency(p.preco_custo)}</td>
-                <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{formatCurrency(p.preco_venda)}</td>
-                <td>{p.codigo_barras || '-'}</td>
-                <td style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => generateBarcode(p)}>
-                    Código
-                  </button>
-                  <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(p)}>
-                    Editar
-                  </button>
-                  <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openHistoricoPrecos(p)}>
-                    Preços
-                  </button>
-                  <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(p.id)}>
-                    Excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhum produto encontrado</p>}
+        <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+          <table>
+            <thead>
+              <tr><th>Nome</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Código</th><th>Ações</th></tr>
+            </thead>
+            <tbody>
+              {filtered.map(p => (
+                <tr key={p.id}>
+                  <td>{p.nome}</td>
+                  <td>{p.categoria_nome || '-'}</td>
+                  <td>{formatCurrency(p.preco_custo)}</td>
+                  <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{formatCurrency(p.preco_venda)}</td>
+                  <td>{p.codigo_barras || '-'}</td>
+                  <td style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => generateBarcode(p)}>
+                      Código
+                    </button>
+                    <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(p)}>
+                      Editar
+                    </button>
+                    <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openHistoricoPrecos(p)}>
+                      Preços
+                    </button>
+                    <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(p.id)}>
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhum produto encontrado</p>}
+        </div>
       </div>
 
       {/* Modal histórico de preços */}

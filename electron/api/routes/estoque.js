@@ -45,7 +45,9 @@ module.exports = (db) => {
 
   router.put('/estoque/:id', (req, res) => {
     const { quantidade, minimo, tamanho, cor, codigo_barras } = req.body;
-    const update = { quantidade, minimo };
+    if (Number(quantidade) < 0) return res.status(400).json({ error: 'Quantidade não pode ser negativa.' });
+    if (Number(minimo) < 0) return res.status(400).json({ error: 'Mínimo não pode ser negativo.' });
+    const update = { quantidade: Number(quantidade) || 0, minimo: Number(minimo) || 0 };
     if (tamanho !== undefined) update.tamanho = tamanho;
     if (cor !== undefined) update.cor = cor;
     if (codigo_barras !== undefined) update.codigo_barras = codigo_barras;
@@ -71,7 +73,8 @@ module.exports = (db) => {
       }
       db.update('estoque', estoque_id, { quantidade: item.quantidade - quantidade });
     } else if (tipo === 'ajuste') {
-      db.update('estoque', estoque_id, { quantidade });
+      if (Number(quantidade) < 0) return res.status(400).json({ error: 'Ajuste não pode resultar em estoque negativo.' });
+      db.update('estoque', estoque_id, { quantidade: Number(quantidade) });
     }
 
     const produto = db.select('produtos').find(p => p.id === item.produto_id);

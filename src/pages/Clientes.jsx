@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { exportPDF } from '../utils/pdfExport';
+import { useModal } from '../components/Modal';
 
 export default function Clientes({ user }) {
   const [clientes, setClientes] = useState([]);
@@ -10,10 +11,11 @@ export default function Clientes({ user }) {
   const [selectedCliente, setSelectedCliente] = useState(null);
   const [historico, setHistorico] = useState([]);
   const [showHistorico, setShowHistorico] = useState(false);
+  const [fiadoModal, setFiadoModal] = useState(null);
+  const [fiadoResumo, setFiadoResumo] = useState([]);
+  const [pagamentoForm, setPagamentoForm] = useState(null);
   const isVendedor = user && user.cargo === 'vendedor';
-  const [modal, setModal] = useState(null);
-  const showAlert = (msg) => { document.activeElement?.blur(); setModal({ msg }); };
-  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
+  const { showAlert, askConfirm, modalEl } = useModal();
 
   useEffect(() => {
     loadData();
@@ -44,13 +46,16 @@ export default function Clientes({ user }) {
     setShowForm(true);
   };
 
-  // Format CPF: XXX.XXX.XXX-XX
+  // Format CPF/CNPJ: auto based on length
   const formatCPF = (value) => {
-    const digits = value.replace(/\D/g, '').slice(0, 11);
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
-    if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
-    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+    const digits = value.replace(/\D/g, '').slice(0, 14);
+    if (digits.length <= 11) {
+      if (digits.length <= 3) return digits;
+      if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+      if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+      return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+    }
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
   };
 
   // Format phone: (XX) XXXXX-XXXX
@@ -69,8 +74,45 @@ export default function Clientes({ user }) {
     setForm({ ...form, telefone: formatPhone(val) });
   };
 
+  const validateCPF = (cpfStr) => {
+    const d = (cpfStr || '').replace(/\D/g, '');
+    if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+    const calc = (len) => {
+      let s = 0;
+      for (let i = 0; i < len; i++) s += Number(d[i]) * (len + 1 - i);
+      const r = (s * 10) % 11;
+      return r === 10 ? 0 : r;
+    };
+    return calc(9) === Number(d[9]) && calc(10) === Number(d[10]);
+  };
+
+  const validateCNPJ = (cnpjStr) => {
+    const d = (cnpjStr || '').replace(/\D/g, '');
+    if (d.length !== 14 || /^(\d)\1{13}$/.test(d)) return false;
+    const calc = (len) => {
+      const weights = len === 12 ? [5,4,3,2,9,8,7,6,5,4,3,2] : [6,5,4,3,2,9,8,7,6,5,4,3,2];
+      let s = 0;
+      for (let i = 0; i < len; i++) s += Number(d[i]) * weights[i];
+      const r = s % 11;
+      return r < 2 ? 0 : 11 - r;
+    };
+    return calc(12) === Number(d[12]) && calc(13) === Number(d[13]);
+  };
+
+  const validateDoc = (docStr) => {
+    const d = (docStr || '').replace(/\D/g, '');
+    if (!d) return true;
+    if (d.length === 11) return validateCPF(d);
+    if (d.length === 14) return validateCNPJ(d);
+    return false;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (form.cpf && !validateDoc(form.cpf)) {
+      showAlert('CPF/CNPJ inválido. Verifique os dígitos.');
+      return;
+    }
     if (editingId) {
       await window.api.put(`/api/clientes/${editingId}`, form);
     } else {
@@ -110,6 +152,37 @@ export default function Clientes({ user }) {
 
   const formatCurrency = (v) => `R$ ${Number(v).toFixed(2)}`;
   const totalGasto = historico.filter(v => v.status !== 'cancelada').reduce((s, v) => s + Number(v.total), 0);
+
+  const openFiado = async (cliente) => {
+    setSelectedCliente(cliente);
+    const res = await window.api.get(`/api/fiado/cliente/${cliente.id}`);
+    setFiadoResumo(res.vendas || []);
+    setFiadoModal(cliente);
+  };
+
+  const pagarFiado = async () => {
+    if (!pagamentoForm) return;
+    const valor = Number(pagamentoForm.valor);
+    if (!valor || valor <= 0) { showAlert('Valor inválido'); return; }
+    try {
+      await window.api.post('/api/fiado/pagamento', {
+        venda_id: pagamentoForm.venda_id,
+        valor,
+        forma_pagamento: pagamentoForm.forma_pagamento || 'dinheiro',
+        usuario_id: user?.id,
+        observacao: pagamentoForm.observacao || ''
+      });
+      setPagamentoForm(null);
+      if (selectedCliente) {
+        const res = await window.api.get(`/api/fiado/cliente/${selectedCliente.id}`);
+        setFiadoResumo(res.vendas || []);
+      }
+    } catch (err) {
+      showAlert(err.data?.error || 'Erro ao registrar pagamento');
+    }
+  };
+
+  const saldoTotalFiado = fiadoResumo.filter(v => v.status === 'finalizada').reduce((s, v) => s + Number(v.saldo_devedor || 0), 0);
 
   const exportHistoricoPDF = () => {
     if (!selectedCliente || !historico.length) return;
@@ -157,8 +230,8 @@ export default function Clientes({ user }) {
                 <input type="text" autoComplete="off" value={form.nome} onChange={e => setForm({...form, nome: e.target.value})} required />
               </div>
               <div className="form-group">
-                <label>CPF</label>
-                <input type="text" autoComplete="off" value={form.cpf} onChange={e => handleCPFChange(e.target.value)} placeholder="000.000.000-00" />
+                <label>CPF / CNPJ</label>
+                <input type="text" autoComplete="off" value={form.cpf} onChange={e => handleCPFChange(e.target.value)} placeholder="000.000.000-00 ou 00.000.000/0000-00" />
               </div>
             </div>
             <div className="form-row">
@@ -202,6 +275,9 @@ export default function Clientes({ user }) {
                     <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleVerHistorico(c)}>
                       Ver Compras
                     </button>
+                    <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openFiado(c)}>
+                      Fiado
+                    </button>
                     {(!isVendedor || c.criado_por_usuario_id === user.id) && (
                       <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(c)}>
                         Editar
@@ -221,16 +297,71 @@ export default function Clientes({ user }) {
         </div>
       </div>
 
-      {modal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
-          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
-            {modal.onConfirm ? (
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
-                <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+      {modalEl}
+
+      {fiadoModal && (
+        <div className="modal-overlay" onClick={() => { setFiadoModal(null); setPagamentoForm(null); }}>
+          <div className="modal" style={{ maxWidth: 700, width: '90%' }} onClick={e => e.stopPropagation()}>
+            <button className="btn-danger" style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px' }} onClick={() => { setFiadoModal(null); setPagamentoForm(null); }}>Fechar</button>
+            <h2 style={{ marginBottom: 8 }}>Fiado — {fiadoModal.nome}</h2>
+            <p style={{ fontSize: 14, marginBottom: 16 }}>
+              Saldo total em aberto: <strong style={{ color: saldoTotalFiado > 0 ? 'var(--danger, crimson)' : 'var(--accent)' }}>{formatCurrency(saldoTotalFiado)}</strong>
+            </p>
+            {fiadoResumo.length === 0 ? (
+              <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma venda fiado para este cliente</p>
+            ) : (
+              <div style={{ maxHeight: '50vh', overflow: 'auto' }}>
+                <table style={{ fontSize: 13 }}>
+                  <thead><tr><th>Venda</th><th>Data</th><th>Total</th><th>Saldo</th><th>Status</th><th></th></tr></thead>
+                  <tbody>
+                    {fiadoResumo.map(v => (
+                      <tr key={v.id}>
+                        <td>#{v.id}</td>
+                        <td>{new Date(v.data).toLocaleDateString('pt-BR')}</td>
+                        <td>{formatCurrency(v.total)}</td>
+                        <td><strong style={{ color: Number(v.saldo_devedor || 0) > 0 ? 'var(--danger, crimson)' : 'inherit' }}>{formatCurrency(v.saldo_devedor || 0)}</strong></td>
+                        <td>{Number(v.saldo_devedor || 0) <= 0 ? 'quitado' : 'em aberto'}</td>
+                        <td>
+                          {Number(v.saldo_devedor || 0) > 0 && v.status === 'finalizada' && (
+                            <button className="btn-primary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setPagamentoForm({ venda_id: v.id, valor: v.saldo_devedor, forma_pagamento: 'dinheiro', observacao: '' })}>
+                              Receber
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ) : <button className="btn-primary" onClick={() => setModal(null)}>OK</button>}
+            )}
+            {pagamentoForm && (
+              <div className="card" style={{ marginTop: 16 }}>
+                <h3 style={{ marginBottom: 12 }}>Receber pagamento — Venda #{pagamentoForm.venda_id}</h3>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Valor</label>
+                    <input type="number" step="0.01" value={pagamentoForm.valor} onChange={e => setPagamentoForm({ ...pagamentoForm, valor: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label>Forma</label>
+                    <select value={pagamentoForm.forma_pagamento} onChange={e => setPagamentoForm({ ...pagamentoForm, forma_pagamento: e.target.value })}>
+                      <option value="dinheiro">Dinheiro</option>
+                      <option value="pix">PIX</option>
+                      <option value="debito">Débito</option>
+                      <option value="credito">Crédito</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>Observação</label>
+                  <input type="text" value={pagamentoForm.observacao} onChange={e => setPagamentoForm({ ...pagamentoForm, observacao: e.target.value })} />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn-secondary" onClick={() => setPagamentoForm(null)}>Cancelar</button>
+                  <button className="btn-primary" onClick={pagarFiado}>Confirmar Pagamento</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -1,19 +1,39 @@
 import React, { useEffect, useState } from 'react';
+import { buildReceiptHTML } from '../utils/receipt';
+import { useModal } from '../components/Modal';
 
 export default function Vendas() {
+  const { showAlert, modalEl } = useModal();
   const [vendas, setVendas] = useState([]);
   const [selectedVenda, setSelectedVenda] = useState(null);
   const [editingVenda, setEditingVenda] = useState(null);
   const [editForm, setEditForm] = useState({ forma_pagamento: '', status: '' });
   const [trocaForm, setTrocaForm] = useState(null);
+  const [trocaVendaItens, setTrocaVendaItens] = useState([]);
+  const [produtosAll, setProdutosAll] = useState([]);
+  const [estoqueAll, setEstoqueAll] = useState([]);
   const [cancelModal, setCancelModal] = useState(null); // venda a cancelar
   const [senhaAdmin, setSenhaAdmin] = useState('');
   const [senhaErro, setSenhaErro] = useState('');
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({ inicio: '', fim: '', status: '', forma_pagamento: '', cliente: '' });
 
   useEffect(() => { loadData(); }, []);
 
-  const loadData = () => { window.api.get('/api/vendas').then(setVendas); };
+  const loadData = () => {
+    window.api.get('/api/vendas').then(setVendas);
+    window.api.get('/api/produtos').then(setProdutosAll).catch(() => {});
+    window.api.get('/api/estoque').then(setEstoqueAll).catch(() => {});
+  };
+
+  const openTroca = async (venda) => {
+    try {
+      const full = await window.api.get(`/api/vendas/${venda.id}`);
+      setTrocaVendaItens(full.itens || []);
+    } catch { setTrocaVendaItens([]); }
+    setTrocaForm(venda);
+  };
 
   const openEdit = (venda) => {
     setEditingVenda(venda.id);
@@ -64,49 +84,20 @@ export default function Vendas() {
 
   const formatCurrency = (v) => `R$ ${Number(v).toFixed(2)}`;
 
-  const handleReprint = (venda) => {
+  const handleReprint = async (venda) => {
+    let config = {};
+    try { config = await window.api.get('/api/configuracoes'); } catch {}
+    let full = venda;
+    try { full = await window.api.get(`/api/vendas/${venda.id}`); } catch {}
+    const html = buildReceiptHTML({ sale: full, config, reprint: true });
+    const printerName = config.impressora_padrao;
+    if (printerName && window.electron?.printReceipt) {
+      await window.electron.printReceipt(html, printerName);
+      return;
+    }
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Cupom - Venda #${venda.id}</title>
-        <style>
-          body { font-family: 'Courier New', monospace; max-width: 300px; margin: 0 auto; padding: 10px; font-size: 12px; }
-          .center { text-align: center; }
-          .bold { font-weight: bold; }
-          .line { border-top: 1px dashed #000; margin: 8px 0; }
-          .total { font-size: 18px; font-weight: bold; }
-          .item { margin: 4px 0; }
-          @media print { body { margin: 0; padding: 5px; } }
-        </style>
-      </head>
-      <body>
-        <p class="center bold">TS Concept PDV</p>
-        <div class="line"></div>
-        <p class="center bold">Venda #${venda.id}</p>
-        <p>Data: ${new Date(venda.data).toLocaleString('pt-BR')}</p>
-        ${venda.cliente_nome ? `<p>Cliente: ${venda.cliente_nome}</p>` : ''}
-        <p>Vendedor: ${venda.usuario_nome}</p>
-        <div class="line"></div>
-        ${(venda.itens || []).map(item => `
-          <div class="item">
-            ${item.produto_nome} (${item.tamanho || '-'}/${item.cor || '-'})<br/>
-            ${item.quantidade} x ${formatCurrency(item.preco_unitario)} = ${formatCurrency(item.quantidade * item.preco_unitario)}
-          </div>
-        `).join('')}
-        <div class="line"></div>
-        <p>Subtotal: ${formatCurrency(venda.subtotal || venda.total)}</p>
-        ${venda.desconto > 0 ? `<p>Desconto: -${formatCurrency(venda.desconto)}</p>` : ''}
-        <p class="total">TOTAL: ${formatCurrency(venda.total)}</p>
-        <p>Pagamento: ${venda.forma_pagamento}</p>
-        <div class="line"></div>
-        <p class="center">Obrigado pela preferência!</p>
-        <p class="center" style="font-size:10px">2ª VIA</p>
-      </body>
-      </html>
-    `);
+    printWindow.document.write(html);
     printWindow.document.close();
     printWindow.focus();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
@@ -198,14 +189,61 @@ export default function Vendas() {
         </div>
       )}
 
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setShowFilters(!showFilters)}>
+            {showFilters ? '▼ Filtros' : '▶ Filtros'}
+          </button>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+            Mostrando: {(() => {
+              const f = filters;
+              const filtered = vendas.filter(v => {
+                if (f.status && v.status !== f.status) return false;
+                if (f.forma_pagamento && v.forma_pagamento !== f.forma_pagamento) return false;
+                if (f.cliente && !(v.cliente_nome || '').toLowerCase().includes(f.cliente.toLowerCase())) return false;
+                if (f.inicio && v.data < f.inicio) return false;
+                if (f.fim && v.data > f.fim + 'T23:59:59') return false;
+                return true;
+              });
+              return `${filtered.length} / ${vendas.length}`;
+            })()}
+          </span>
+          {(filters.inicio || filters.fim || filters.status || filters.forma_pagamento || filters.cliente) && (
+            <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setFilters({ inicio: '', fim: '', status: '', forma_pagamento: '', cliente: '' })}>Limpar</button>
+          )}
+        </div>
+        {showFilters && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginTop: 10 }}>
+            <input type="date" value={filters.inicio} onChange={e => setFilters({ ...filters, inicio: e.target.value })} placeholder="Início" />
+            <input type="date" value={filters.fim} onChange={e => setFilters({ ...filters, fim: e.target.value })} placeholder="Fim" />
+            <select value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
+              <option value="">Todos os status</option>
+              <option value="finalizada">Finalizada</option>
+              <option value="cancelada">Cancelada</option>
+              <option value="devolvida">Devolvida</option>
+            </select>
+            <input value={filters.forma_pagamento} onChange={e => setFilters({ ...filters, forma_pagamento: e.target.value })} placeholder="Pagamento" />
+            <input value={filters.cliente} onChange={e => setFilters({ ...filters, cliente: e.target.value })} placeholder="Cliente (nome)" />
+          </div>
+        )}
+      </div>
+
       <div className="card">
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ maxHeight: 480, overflowY: 'auto', overflowX: 'auto' }}>
           <table style={{ minWidth: 900 }}>
             <thead>
-              <tr><th>#</th><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Pagamento</th><th>Parcelas</th><th>Status</th><th>Total</th><th>Ações</th></tr>
+              <tr><th>#</th><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Pagamento</th><th>Parcelas</th><th>Status</th><th>Motivo</th><th>Total</th><th>Ações</th></tr>
             </thead>
             <tbody>
-              {vendas.map(v => (
+              {vendas.filter(v => {
+                const f = filters;
+                if (f.status && v.status !== f.status) return false;
+                if (f.forma_pagamento && v.forma_pagamento !== f.forma_pagamento) return false;
+                if (f.cliente && !(v.cliente_nome || '').toLowerCase().includes(f.cliente.toLowerCase())) return false;
+                if (f.inicio && v.data < f.inicio) return false;
+                if (f.fim && v.data > f.fim + 'T23:59:59') return false;
+                return true;
+              }).map(v => (
                 <tr key={v.id}>
                   <td>{v.id}</td>
                   <td>{new Date(v.data).toLocaleString('pt-BR')}</td>
@@ -218,6 +256,11 @@ export default function Vendas() {
                     {v.status === 'cancelada' && <span className="badge badge-danger">Cancelada</span>}
                     {v.status === 'devolvida' && <span className="badge badge-warning">Devolvida</span>}
                   </td>
+                  <td style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 180 }} title={v.motivo_cancelamento || ''}>
+                    {v.motivo_cancelamento
+                      ? (v.motivo_cancelamento.length > 30 ? v.motivo_cancelamento.slice(0, 30) + '...' : v.motivo_cancelamento)
+                      : '-'}
+                  </td>
                   <td style={{ fontWeight: 600, color: 'var(--accent)' }}>{formatCurrency(v.total)}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'nowrap' }}>
@@ -228,7 +271,7 @@ export default function Vendas() {
                         handleReprint({ ...v, itens: full.itens || [] });
                       }}>Imprimir</button>
                       {v.status === 'finalizada' && (
-                        <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setTrocaForm(v)}>Troca/Dev.</button>
+                        <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openTroca(v)}>Troca/Dev.</button>
                       )}
                     </div>
                   </td>
@@ -249,6 +292,9 @@ export default function Vendas() {
             <p><strong>Vendedor:</strong> {selectedVenda.usuario_nome}</p>
             <p><strong>Pagamento:</strong> {selectedVenda.forma_pagamento}{selectedVenda.parcelas ? ` (${selectedVenda.parcelas}x)` : ''}</p>
             <p><strong>Status:</strong> {selectedVenda.status}</p>
+            {selectedVenda.motivo_cancelamento && (
+              <p style={{ color: 'var(--danger)' }}><strong>Motivo:</strong> {selectedVenda.motivo_cancelamento}</p>
+            )}
             <hr style={{ borderColor: 'var(--border)', margin: '12px 0' }} />
             <table>
               <thead><tr><th>Produto</th><th>Qtd</th><th>Preço</th><th>Total</th></tr></thead>
@@ -275,28 +321,65 @@ export default function Vendas() {
 
       {trocaForm && (
         <div className="modal-overlay" onClick={() => setTrocaForm(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <h3 style={{ marginBottom: 16 }}>Registrar Troca/Devolução - Venda #{trocaForm.id}</h3>
             <form onSubmit={async (e) => {
               e.preventDefault();
               const fd = new FormData(e.target);
               const user = JSON.parse(localStorage.getItem('pdv_user'));
+              const itemIdx = Number(fd.get('item_idx'));
+              const itemSel = trocaVendaItens[itemIdx];
+              if (!itemSel) { showAlert('Selecione um item da venda'); return; }
+              const qtd = Math.min(Number(fd.get('quantidade') || 1), itemSel.quantidade);
               await window.api.post('/api/trocas', {
                 venda_id: trocaForm.id,
-                produto_id: fd.get('produto_id') ? Number(fd.get('produto_id')) : null,
+                produto_id: itemSel.produto_id,
+                estoque_id: itemSel.estoque_id,
+                quantidade: qtd,
                 motivo: fd.get('motivo'),
                 tipo: fd.get('tipo'),
-                novo_produto_id: null,
+                novo_produto_id: fd.get('novo_estoque_id') ? (estoqueAll.find(x => x.id === Number(fd.get('novo_estoque_id'))) || {}).produto_id || null : null,
+                novo_estoque_id: fd.get('novo_estoque_id') ? Number(fd.get('novo_estoque_id')) : null,
                 observacao: fd.get('observacao'),
                 usuario_id: user.id
               });
               setTrocaForm(null);
+              setTrocaVendaItens([]);
+              loadData();
             }}>
               <div className="form-group">
                 <label>Tipo</label>
-                <select name="tipo" defaultValue="troca">
+                <select name="tipo" defaultValue="troca" onChange={e => {
+                  const el = document.getElementById('novo-item-wrapper');
+                  if (el) el.style.display = e.target.value === 'troca' ? 'block' : 'none';
+                }}>
                   <option value="troca">Troca</option>
                   <option value="devolucao">Devolução</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Item a devolver/trocar *</label>
+                <select name="item_idx" required defaultValue="">
+                  <option value="" disabled>Selecione o item da venda...</option>
+                  {trocaVendaItens.map((it, idx) => (
+                    <option key={idx} value={idx}>
+                      {it.produto_nome} {(it.tamanho || it.cor) ? `(${it.tamanho || '-'}/${it.cor || '-'})` : ''} — qtd: {it.quantidade}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Quantidade</label>
+                <input name="quantidade" type="number" min="1" defaultValue="1" />
+              </div>
+              <div id="novo-item-wrapper" className="form-group" style={{ display: 'block' }}>
+                <label>Item novo (para troca)</label>
+                <select name="novo_estoque_id" defaultValue="">
+                  <option value="">— escolher depois ao aprovar —</option>
+                  {estoqueAll.filter(e => e.quantidade > 0).map(e => {
+                    const p = produtosAll.find(pr => pr.id === e.produto_id);
+                    return <option key={e.id} value={e.id}>{p ? p.nome : `#${e.produto_id}`} ({e.tamanho || '-'}/{e.cor || '-'}) — disp: {e.quantidade}</option>;
+                  })}
                 </select>
               </div>
               <div className="form-group">
@@ -308,13 +391,14 @@ export default function Vendas() {
                 <textarea name="observacao" rows={2} />
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button className="btn-secondary" type="button" onClick={() => setTrocaForm(null)} style={{ flex: 1 }}>Cancelar</button>
+                <button className="btn-secondary" type="button" onClick={() => { setTrocaForm(null); setTrocaVendaItens([]); }} style={{ flex: 1 }}>Cancelar</button>
                 <button className="btn-success" type="submit" style={{ flex: 1 }}>Registrar</button>
               </div>
             </form>
           </div>
         </div>
       )}
+      {modalEl}
     </div>
   );
 }

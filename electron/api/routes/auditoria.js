@@ -23,5 +23,10 @@ module.exports = (db) => {
     res.json({ id: result.lastInsertRowid });
   });
 
+  router.get('/auditoria/verificar', (req, res) => {
+    const result = db.verifyAuditChain();
+    res.json(result);
+  });
+
   return router;
 };

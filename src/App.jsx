@@ -18,6 +18,7 @@ import FechamentoCaixa from './pages/FechamentoCaixa';
 import Trocas from './pages/Trocas';
 import Backup from './pages/Backup';
 import Auditoria from './pages/Auditoria';
+import ControleCaixa from './pages/ControleCaixa';
 
 function applyTheme(cfg) {
   const root = document.documentElement.style;
@@ -38,6 +39,9 @@ function App() {
 
   useEffect(() => {
     window.api.get('/api/configuracoes').then(applyTheme).catch(() => {});
+    const onThemeUpdate = (e) => { if (e.detail) applyTheme(e.detail); };
+    window.addEventListener('pdv:theme-updated', onThemeUpdate);
+    return () => window.removeEventListener('pdv:theme-updated', onThemeUpdate);
   }, []);
 
   useEffect(() => {
@@ -48,18 +52,19 @@ function App() {
     }
   }, [user]);
 
-  // Keyboard shortcuts for modals
+  // Keyboard shortcuts for modals — disabled when PDV is open (let PDV own F2/F4)
   useEffect(() => {
     const handler = (e) => {
+      if (showModal === 'pdv') return;
       if (e.key === 'F1') { e.preventDefault(); openModal('pdv'); }
-      if (e.key === 'F2') { e.preventDefault(); openModal('vendas-hoje'); }
-      if (e.key === 'F3') { e.preventDefault(); openModal('vendas-semana'); }
-      if (e.key === 'F4') { e.preventDefault(); openModal('vendas-mes'); }
-      if (e.key === 'F5') { e.preventDefault(); openModal('vendas-geral'); }
+      if (e.key === 'F6') { e.preventDefault(); openModal('vendas-hoje'); }
+      if (e.key === 'F7') { e.preventDefault(); openModal('vendas-semana'); }
+      if (e.key === 'F8') { e.preventDefault(); openModal('vendas-mes'); }
+      if (e.key === 'F9') { e.preventDefault(); openModal('vendas-geral'); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [showModal]);
 
   // Auto-logout on window close
   useEffect(() => {
@@ -115,6 +120,7 @@ function App() {
         <Route path="/trocas" element={<Trocas user={user} />} />
         <Route path="/backup" element={<Backup user={user} />} />
         <Route path="/auditoria" element={<Auditoria />} />
+        <Route path="/controle-caixa" element={<ControleCaixa />} />
         <Route path="/configuracoes" element={<Configuracoes user={user} />} />
       </Routes>
 

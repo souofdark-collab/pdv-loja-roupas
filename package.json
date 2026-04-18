@@ -9,7 +9,8 @@
     "electron:dev": "vite",
     "electron:build": "vite build && electron-builder",
     "preview": "vite preview",
-    "electron:preview": "npm run build && electron ./electron/main.js"
+    "electron:preview": "npm run build && electron ./electron/main.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -27,8 +28,10 @@
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.26.0",
+    "supertest": "^7.2.2",
     "vite": "^6.0.0",
     "vite-plugin-electron": "^0.28.0",
+    "vitest": "^4.1.4",
     "wait-on": "^8.0.0"
   },
   "build": {

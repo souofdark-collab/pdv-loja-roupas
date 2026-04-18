@@ -8,7 +8,8 @@ module.exports = (db) => {
     { id: 1, nome: 'Dinheiro', ativa: 1, ordem: 1 },
     { id: 2, nome: 'Cartão Débito', ativa: 1, ordem: 2 },
     { id: 3, nome: 'Cartão Crédito', ativa: 1, ordem: 3 },
-    { id: 4, nome: 'PIX', ativa: 1, ordem: 4 }
+    { id: 4, nome: 'PIX', ativa: 1, ordem: 4 },
+    { id: 5, nome: 'Fiado', ativa: 1, ordem: 5 }
   ];
 
   // Init default configs

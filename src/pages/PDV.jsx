@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { fuzzyMatch } from '../utils/fuzzySearch';
+import { buildPixPayload } from '../utils/pix';
+import { buildReceiptHTML as buildReceiptHTMLShared } from '../utils/receipt';
+import { useModal } from '../components/Modal';
 
 export default function PDV({ user, onClose, onCartChange }) {
   const [produtos, setProdutos] = useState([]);
@@ -11,6 +15,8 @@ export default function PDV({ user, onClose, onCartChange }) {
   const [cart, setCart] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedVendedor, setSelectedVendedor] = useState(null);
+  const [saleVendedor, setSaleVendedor] = useState(null);
+  const [saleCaixa, setSaleCaixa] = useState(null);
   const [showVendedorSelect, setShowVendedorSelect] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [cashFieldVisible, setCashFieldVisible] = useState(false);
@@ -44,11 +50,59 @@ export default function PDV({ user, onClose, onCartChange }) {
   const [config, setConfig] = useState({});
   const searchInputRef = useRef(null);
   const receiptRef = useRef(null);
-  const [pdvAlert, setPdvAlert] = useState(null);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [descontoAuth, setDescontoAuth] = useState(null);
+  const [heldSales, setHeldSales] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('pdv_held_sales') || '[]'); }
+    catch { return []; }
+  });
+  const [showHoldList, setShowHoldList] = useState(false);
+  const [holdLabelPrompt, setHoldLabelPrompt] = useState(null);
 
-  const showAlert = (msg) => { document.activeElement?.blur(); setPdvAlert(msg); };
-  const confirmCancel = () => { document.activeElement?.blur(); setShowCancelConfirm(true); };
+  const persistHeldSales = (list) => {
+    setHeldSales(list);
+    try { localStorage.setItem('pdv_held_sales', JSON.stringify(list)); } catch {}
+  };
+
+  const holdSale = (label) => {
+    if (cart.length === 0) return;
+    const entry = {
+      id: Date.now(),
+      label: label || `Venda ${new Date().toLocaleTimeString('pt-BR')}`,
+      cart,
+      cliente: selectedClient,
+      vendedor: selectedVendedor,
+      descontoGlobal, descontoGlobalTipo,
+      savedAt: new Date().toISOString()
+    };
+    persistHeldSales([entry, ...heldSales]);
+    setCart([]);
+    setSelectedClient(null);
+    setSelectedVendedor(null);
+    setDescontoGlobal('');
+    setHoldLabelPrompt(null);
+  };
+
+  const resumeHold = (entry) => {
+    if (cart.length > 0) {
+      showAlert('Finalize ou limpe o carrinho atual antes de retomar uma venda em espera.');
+      return;
+    }
+    setCart(entry.cart || []);
+    setSelectedClient(entry.cliente || null);
+    setSelectedVendedor(entry.vendedor || null);
+    setDescontoGlobal(entry.descontoGlobal || '');
+    setDescontoGlobalTipo(entry.descontoGlobalTipo || 'percentual');
+    persistHeldSales(heldSales.filter(h => h.id !== entry.id));
+    setShowHoldList(false);
+  };
+
+  const removeHold = (id) => {
+    persistHeldSales(heldSales.filter(h => h.id !== id));
+  };
+
+  const { showAlert, askConfirm, modalEl } = useModal();
+  const confirmCancel = () => askConfirm('Cancelar venda? Os itens do carrinho serão perdidos.', () => setCart([]), { confirmLabel: 'Cancelar Venda' });
 
   useEffect(() => {
     loadData();
@@ -89,12 +143,15 @@ export default function PDV({ user, onClose, onCartChange }) {
     const handler = (e) => {
       if (e.key === 'F2' && cart.length > 0) { e.preventDefault(); setShowCheckout(true); }
       if (e.key === 'F4' && cart.length > 0) { e.preventDefault(); confirmCancel(); }
-      // Enter on numeric barcode search - auto-add to cart
-      if (e.key === 'Enter' && searchTerm && /^\d+$/.test(searchTerm)) {
+      // Enter on numeric barcode (>=8 digits, EAN-8/12/13) - auto-add to cart.
+      // Shorter numeric strings may match product names (ex: "36", "42") and are treated as search.
+      if (e.key === 'Enter' && searchTerm && /^\d{8,}$/.test(searchTerm)) {
         e.preventDefault();
-        const found = produtos.find(p => p.codigo_barras && p.codigo_barras.includes(searchTerm));
-        if (found) addToCart(found);
-        else showAlert('Produto com código de barras não encontrado');
+        const found = findByBarcode(searchTerm);
+        if (found) {
+          const estoqueItem = findEstoqueByBarcode(searchTerm);
+          addToCart(found, estoqueItem);
+        } else showAlert('Produto com código de barras não encontrado');
       }
       // ESC to close modals
       if (e.key === 'Escape') {
@@ -102,6 +159,9 @@ export default function PDV({ user, onClose, onCartChange }) {
           e.preventDefault();
           setShowReceipt(false);
           setCompletedSale(null);
+          setSaleVendedor(null);
+          setSaleCaixa(null);
+          setSelectedVendedor(null);
         } else if (showCheckout) {
           e.preventDefault();
           closeCheckout();
@@ -112,12 +172,34 @@ export default function PDV({ user, onClose, onCartChange }) {
     return () => window.removeEventListener('keydown', handler);
   }, [cart, searchTerm, produtos, showCheckout, showReceipt, completedSale]);
 
+  const findByBarcode = (code) => {
+    const bc = code.trim();
+    // Primeiro tenta por barcode do estoque (unidade específica)
+    const estoqueItem = estoque.find(e => e.codigo_barras && e.codigo_barras === bc);
+    if (estoqueItem) {
+      return produtos.find(p => p.id === estoqueItem.produto_id) || null;
+    }
+    // Fallback: barcode do produto (modelo)
+    return produtos.find(p => p.codigo_barras && p.codigo_barras === bc) || null;
+  };
+
+  const findEstoqueByBarcode = (code) => {
+    const bc = code.trim();
+    const byEstoque = estoque.find(e => e.codigo_barras && e.codigo_barras === bc && e.quantidade > 0);
+    if (byEstoque) return byEstoque;
+    // Fallback: barcode do produto → pega primeiro item de estoque disponível
+    const produto = produtos.find(p => p.codigo_barras && p.codigo_barras === bc);
+    if (produto) return estoque.find(e => e.produto_id === produto.id && e.quantidade > 0) || null;
+    return null;
+  };
+
   const handleBarcodeSubmit = (e) => {
     e.preventDefault();
     if (!barcodeInput.trim()) return;
-    const found = produtos.find(p => p.codigo_barras && p.codigo_barras === barcodeInput.trim());
+    const found = findByBarcode(barcodeInput);
     if (found) {
-      addToCart(found);
+      const estoqueItem = findEstoqueByBarcode(barcodeInput);
+      addToCart(found, estoqueItem);
       closeBarcodeMode();
     } else {
       setBarcodeError(`Produto não encontrado: "${barcodeInput}"`);
@@ -147,13 +229,15 @@ export default function PDV({ user, onClose, onCartChange }) {
 
   const searchProduct = useCallback((term) => {
     if (!term) { setSearchResults([]); return; }
-    const filtered = produtos.filter(p =>
-      (p.nome.toLowerCase().includes(term.toLowerCase()) ||
-      (p.codigo_barras && p.codigo_barras === term)) &&
-      (!categoryFilter || p.categoria_id === categoryFilter)
-    );
+    const estoqueIds = estoque.filter(e => e.codigo_barras && e.codigo_barras.includes(term)).map(e => e.produto_id);
+    const filtered = produtos.filter(p => {
+      const matchNome = fuzzyMatch(p.nome, term);
+      const matchBarcode = p.codigo_barras && p.codigo_barras === term;
+      const matchEstoque = estoqueIds.includes(p.id);
+      return (matchNome || matchBarcode || matchEstoque) && (!categoryFilter || p.categoria_id === categoryFilter);
+    });
     setSearchResults(filtered);
-  }, [produtos, categoryFilter]);
+  }, [produtos, estoque, categoryFilter]);
 
   // Only auto-search when user is typing (not on initial focus)
   useEffect(() => {
@@ -193,12 +277,19 @@ export default function PDV({ user, onClose, onCartChange }) {
     setTimeout(() => setSearchActive(false), 200);
   };
 
-  const addToCart = (produto) => {
-    const estoqueItem = estoque.find(e => e.produto_id === produto.id && e.quantidade > 0);
+  const addToCart = (produto, estoqueItemOverride = null) => {
+    const estoqueItem = estoqueItemOverride || estoque.find(e => e.produto_id === produto.id && e.quantidade > 0);
     if (!estoqueItem) {
       showAlert('Produto sem estoque disponível');
       return;
     }
+    try {
+      const raw = localStorage.getItem('pdv_recent_products');
+      const list = raw ? JSON.parse(raw) : [];
+      const filtered = list.filter(id => id !== produto.id);
+      filtered.unshift(produto.id);
+      localStorage.setItem('pdv_recent_products', JSON.stringify(filtered.slice(0, 10)));
+    } catch {}
 
     // Check for product-specific active promotion
     const promoAplicavel = promocoes.find(p =>
@@ -265,18 +356,16 @@ export default function PDV({ user, onClose, onCartChange }) {
   const subtotal = cart.reduce((sum, item) => sum + (item.preco_unitario * item.quantidade), 0);
   const descontosItens = cart.reduce((sum, item) => sum + ((item.desconto_item || 0) * item.quantidade), 0);
 
-  // Auto-calculate discount from active promotions (exclude product-specific — those are baked into item prices)
+  // Auto-calculate discount from active promotions (exclude product-specific — those are baked into item prices).
+  // Apply only the SINGLE best promo, not cumulative — stacking them created 2×, 3× unintended discounts.
   const descontoPromocao = React.useMemo(() => {
-    let desc = 0;
+    let best = 0;
     for (const prom of promocoes) {
       if (prom.aplicavel_a === 'produto') continue;
-      if (prom.tipo === 'percentual') {
-        desc += subtotal * (prom.valor / 100);
-      } else {
-        desc += prom.valor;
-      }
+      const desc = prom.tipo === 'percentual' ? subtotal * (prom.valor / 100) : Number(prom.valor) || 0;
+      if (desc > best) best = desc;
     }
-    return desc;
+    return best;
   }, [promocoes, subtotal]);
 
   // Manual global discount
@@ -288,7 +377,7 @@ export default function PDV({ user, onClose, onCartChange }) {
 
   const formatCurrency = (v) => `R$ ${Number(v).toFixed(2)}`;
 
-  const finalizeSale = async () => {
+  const finalizeSale = async (bypassAuthCheck = false) => {
     if (cart.length === 0) return;
     if (!selectedClient) {
       showAlert('Selecione um cliente antes de finalizar a venda');
@@ -301,6 +390,16 @@ export default function PDV({ user, onClose, onCartChange }) {
     if (cashFieldVisible && Number(cashGiven) < total) {
       showAlert('Valor insuficiente');
       return;
+    }
+    // Check discount authorization
+    const limitePct = Number(config.desconto_max_sem_senha) || 0;
+    if (!bypassAuthCheck && limitePct > 0 && subtotal > 0) {
+      const descontoPct = (descontos / subtotal) * 100;
+      const userIsAdmin = user && user.cargo === 'admin';
+      if (descontoPct > limitePct && !userIsAdmin) {
+        setDescontoAuth({ login: '', senha: '', erro: '', pct: descontoPct, limite: limitePct });
+        return;
+      }
     }
     try {
       const sale = await window.api.post('/api/vendas', {
@@ -318,16 +417,26 @@ export default function PDV({ user, onClose, onCartChange }) {
         desconto: descontos,
         parcelas: paymentMethod.toLowerCase().includes('crédito') ? parcelas : null
       });
-      setCompletedSale(sale);
+      setCompletedSale({ ...sale, vendedor_nome: selectedVendedor?.nome || sale.vendedor_nome || '' });
+      setSaleVendedor(selectedVendedor);
+      setSaleCaixa(user);
       const isDinheiro = cashFieldVisible;
       setSalePaymentInfo({ paymentMethod, cashGiven: isDinheiro ? Number(cashGiven) : null, troco: isDinheiro ? Math.max(0, Number(cashGiven) - total) : null });
       setCart([]);
       setCashGiven('');
-      setSelectedVendedor(null);
       setShowCheckout(false);
       setShowReceipt(true);
-      // Refresh data
-      window.api.get('/api/estoque').then(setEstoque);
+      // Refresh data and warn about low stock after sale
+      window.api.get('/api/estoque').then(list => {
+        setEstoque(list);
+        const soldIds = new Set(cart.map(c => c.estoque_id));
+        const baixos = list.filter(e => soldIds.has(e.id) && e.quantidade <= e.minimo);
+        if (baixos.length > 0) {
+          const names = baixos.map(b => `${b.produto_nome} (${b.tamanho}/${b.cor}): ${b.quantidade}`).join('\n');
+          setToast({ msg: `Estoque baixo após venda:\n${names}`, type: 'warning' });
+          setTimeout(() => setToast(null), 6000);
+        }
+      });
       window.api.get('/api/produtos').then(setProdutos);
     } catch (err) {
       showAlert(err?.message || 'Erro ao finalizar venda');
@@ -348,52 +457,14 @@ export default function PDV({ user, onClose, onCartChange }) {
   };
 
   const buildReceiptHTML = (sale, payInfo) => {
-    const empresa = config.empresa_nome || 'TS Concept PDV';
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Cupom - Venda #${sale.id}</title>
-        <style>
-          body { font-family: 'Courier New', monospace; max-width: 300px; margin: 0 auto; padding: 10px; font-size: 12px; }
-          .center { text-align: center; }
-          .bold { font-weight: bold; }
-          .line { border-top: 1px dashed #000; margin: 8px 0; }
-          .total { font-size: 18px; font-weight: bold; }
-          .item { margin: 4px 0; }
-          @media print { body { margin: 0; padding: 5px; } }
-        </style>
-      </head>
-      <body>
-        <p class="center bold" style="font-size:14px">${empresa}</p>
-        ${config.empresa_endereco ? `<p class="center">${config.empresa_endereco}</p>` : ''}
-        ${config.empresa_cnpj ? `<p class="center">CNPJ: ${config.empresa_cnpj}</p>` : ''}
-        ${config.empresa_contato ? `<p class="center">Tel: ${config.empresa_contato}</p>` : ''}
-        <div class="line"></div>
-        <p class="center bold">Venda #${sale.id}</p>
-        <p>Data: ${new Date(sale.data).toLocaleString('pt-BR')}</p>
-        <div class="line"></div>
-        ${selectedClient ? `<p><b>Cliente:</b> ${selectedClient.nome}${selectedClient.cpf ? ` | CPF: ${selectedClient.cpf}` : ''}</p>` : ''}
-        <p>Caixa: ${user.nome}</p>
-        ${selectedVendedor ? `<p>Vendedor: ${selectedVendedor.nome}</p>` : ''}
-        <div class="line"></div>
-        ${sale.itens.map(item => `
-          <div class="item">
-            ${item.produto_nome} (${item.tamanho || '-'}/${item.cor || '-'})<br/>
-            ${item.quantidade} x ${formatCurrency(item.preco_unitario)} = ${formatCurrency(item.quantidade * item.preco_unitario)}
-          </div>
-        `).join('')}
-        <div class="line"></div>
-        <p>Subtotal: ${formatCurrency(sale.subtotal)}</p>
-        ${sale.desconto > 0 ? `<p>Desconto: -${formatCurrency(sale.desconto)}</p>` : ''}
-        <p class="total">TOTAL: ${formatCurrency(sale.total)}</p>
-        <p>Pagamento: ${payInfo ? payInfo.paymentMethod : ''}</p>
-        ${payInfo && payInfo.cashGiven !== null ? `<p>Recebido: ${formatCurrency(payInfo.cashGiven)}</p><p>Troco: ${formatCurrency(payInfo.troco)}</p>` : ''}
-        <div class="line"></div>
-        <p class="center">Obrigado pela preferência!</p>
-      </body>
-      </html>
-    `;
+    return buildReceiptHTMLShared({
+      sale,
+      config,
+      cliente: selectedClient,
+      vendedor: saleVendedor || selectedVendedor,
+      caixa: saleCaixa || user,
+      payInfo
+    });
   };
 
   const handlePrint = async () => {
@@ -428,12 +499,11 @@ export default function PDV({ user, onClose, onCartChange }) {
             <p>Data: {new Date(completedSale.data).toLocaleString('pt-BR')}</p>
             <p>--------------------------------</p>
             {selectedClient && <p>Cliente: {selectedClient.nome}{selectedClient.cpf ? ` | CPF: ${selectedClient.cpf}` : ''}</p>}
-            <p>Caixa: {user.nome}</p>
-            {selectedVendedor && <p>Vendedor: {selectedVendedor.nome}</p>}
+            {(saleVendedor || saleCaixa) && <p><strong>Vendedor:</strong> {saleVendedor ? saleVendedor.nome : saleCaixa.nome}</p>}
             <p>--------------------------------</p>
             {completedSale.itens.map((item, i) => (
               <p key={i}>
-                {item.produto_nome} ({item.tamanho || '-'}/{item.cor || '-'})<br />
+                {item.produto_nome}{(item.tamanho || item.cor) ? ` (${item.tamanho || '-'}/${item.cor || '-'})` : ''}<br />
                 {item.quantidade} x {formatCurrency(item.preco_unitario)} = {formatCurrency(item.quantidade * item.preco_unitario)}
               </p>
             ))}
@@ -441,15 +511,24 @@ export default function PDV({ user, onClose, onCartChange }) {
             <p>Subtotal: {formatCurrency(completedSale.subtotal)}</p>
             {completedSale.desconto > 0 && <p>Desconto: -{formatCurrency(completedSale.desconto)}</p>}
             <p style={{ fontSize: 18, fontWeight: 700 }}>TOTAL: {formatCurrency(completedSale.total)}</p>
-            <p>Pagamento: {salePaymentInfo ? salePaymentInfo.paymentMethod : ''}</p>
+            <p>Pagamento: {salePaymentInfo ? salePaymentInfo.paymentMethod : ''}{salePaymentInfo && /crédito|credito/i.test(salePaymentInfo.paymentMethod || '') && Number(completedSale.parcelas) > 1 ? ` (${completedSale.parcelas}x)` : ''}</p>
             {salePaymentInfo && salePaymentInfo.cashGiven !== null && <p>Recebido: {formatCurrency(salePaymentInfo.cashGiven)}</p>}
             {salePaymentInfo && salePaymentInfo.troco !== null && <p>Troco: {formatCurrency(salePaymentInfo.troco)}</p>}
+            {salePaymentInfo && /pix/i.test(salePaymentInfo.paymentMethod || '') && config.pix_chave && (
+              <>
+                <p>--------------------------------</p>
+                <p style={{ textAlign: 'center', fontWeight: 700 }}>PIX — Copia e Cola</p>
+                <p style={{ fontSize: 10, wordBreak: 'break-all', textAlign: 'center' }}>
+                  {buildPixPayload({ chave: config.pix_chave, nome: config.pix_nome || (config.empresa_nome || 'PDV'), cidade: config.pix_cidade || 'BRASIL', valor: completedSale.total, txid: `VENDA${completedSale.id}` })}
+                </p>
+              </>
+            )}
             <p>--------------------------------</p>
             <p style={{ textAlign: 'center' }}>Obrigado pela preferência!</p>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             <button className="btn-secondary" onClick={handlePrint} style={{ flex: 1 }}>Imprimir</button>
-            <button className="btn-primary" onClick={() => { setShowReceipt(false); setCompletedSale(null); }} style={{ flex: 1 }}>Nova Venda</button>
+            <button className="btn-primary" onClick={() => { setShowReceipt(false); setCompletedSale(null); setSaleVendedor(null); setSaleCaixa(null); setSelectedVendedor(null); }} style={{ flex: 1 }}>Nova Venda</button>
           </div>
         </div>
       </div>
@@ -602,7 +681,24 @@ export default function PDV({ user, onClose, onCartChange }) {
 
         {/* Right: Cart */}
         <div className="card">
-          <h3 style={{ marginBottom: 12 }}>Carrinho ({cart.length} itens)</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ margin: 0 }}>Carrinho ({cart.length} itens)</h3>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }}
+                disabled={cart.length === 0}
+                title={cart.length === 0 ? 'Carrinho vazio' : 'Segurar venda'}
+                onClick={() => setHoldLabelPrompt({ label: '' })}>
+                Segurar
+              </button>
+              <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12, position: 'relative' }}
+                onClick={() => setShowHoldList(true)}>
+                Em Espera
+                {heldSales.length > 0 && (
+                  <span style={{ marginLeft: 4, background: 'var(--accent)', borderRadius: 10, padding: '1px 6px', fontSize: 10 }}>{heldSales.length}</span>
+                )}
+              </button>
+            </div>
+          </div>
           {cart.length === 0 ? (
             <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: 20 }}>Carrinho vazio</p>
           ) : (
@@ -743,6 +839,31 @@ export default function PDV({ user, onClose, onCartChange }) {
               </div>
             )}
 
+            {!searchTerm && !categoryFilter && (() => {
+              try {
+                const ids = JSON.parse(localStorage.getItem('pdv_recent_products') || '[]');
+                const recentes = ids.map(id => produtos.find(p => p.id === id)).filter(Boolean).slice(0, 8);
+                if (recentes.length === 0) return null;
+                return (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>Usados recentemente</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {recentes.map(p => {
+                        const has = estoque.some(e => e.produto_id === p.id && e.quantidade > 0);
+                        return (
+                          <button key={p.id} type="button" disabled={!has}
+                            onClick={() => { addToCart(p); closeProductModal(); }}
+                            style={{ padding: '4px 10px', fontSize: 12, borderRadius: 12, cursor: has ? 'pointer' : 'not-allowed', opacity: has ? 1 : 0.4, background: 'var(--bg-card)', color: 'white', border: '1px solid var(--border)' }}>
+                            {p.nome}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              } catch { return null; }
+            })()}
+
             <div style={{ overflowY: 'auto', flex: 1, borderRadius: 6, border: '1px solid var(--border)' }}>
               {(searchTerm ? searchResults : (categoryFilter ? produtos.filter(p => p.categoria_id === categoryFilter) : produtos)).map(p => {
                 const estoqueItens = estoque.filter(e => e.produto_id === p.id && e.quantidade > 0);
@@ -854,6 +975,7 @@ export default function PDV({ user, onClose, onCartChange }) {
                         e.preventDefault();
                         e.stopPropagation();
                         setPaymentMethod(pm.nome);
+                        if (!pm.nome.toLowerCase().includes('crédito')) setParcelas(1);
                         if (isDinheiro) {
                           setCashFieldVisible(true);
                         } else {
@@ -928,28 +1050,115 @@ export default function PDV({ user, onClose, onCartChange }) {
         </div>
       )}
 
-      {/* Alert Modal */}
-      {pdvAlert && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }} onClick={() => setPdvAlert(null)}>
-          <div className="card" style={{ maxWidth: 340, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <p style={{ marginBottom: 20, fontSize: 15 }}>{pdvAlert}</p>
-            <button className="btn-primary" onClick={() => setPdvAlert(null)}>OK</button>
-          </div>
-        </div>
-      )}
-
-      {/* Cancel Sale Confirm Modal */}
-      {showCancelConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }} onClick={() => setShowCancelConfirm(false)}>
-          <div className="card" style={{ maxWidth: 340, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <p style={{ marginBottom: 20, fontSize: 15 }}>Cancelar venda? Os itens do carrinho serão perdidos.</p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button className="btn-secondary" onClick={() => setShowCancelConfirm(false)}>Não</button>
-              <button className="btn-danger" onClick={() => { setShowCancelConfirm(false); setCart([]); }}>Cancelar Venda</button>
+      {/* Hold label prompt */}
+      {holdLabelPrompt && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400 }} onClick={() => setHoldLabelPrompt(null)}>
+          <div className="card" style={{ maxWidth: 360, width: '90vw', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: 12 }}>Segurar Venda</h3>
+            <div className="form-group">
+              <label>Identificação (opcional)</label>
+              <input value={holdLabelPrompt.label} autoFocus
+                onChange={e => setHoldLabelPrompt({ label: e.target.value })}
+                onKeyDown={e => e.key === 'Enter' && holdSale(holdLabelPrompt.label)}
+                placeholder="Ex: João, mesa 2..." />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setHoldLabelPrompt(null)}>Cancelar</button>
+              <button className="btn-success" style={{ flex: 1 }} onClick={() => holdSale(holdLabelPrompt.label)}>Segurar</button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Hold list modal */}
+      {showHoldList && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400 }} onClick={() => setShowHoldList(false)}>
+          <div className="card" style={{ maxWidth: 500, width: '90vw', maxHeight: '80vh', padding: 20, display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h3 style={{ margin: 0 }}>Vendas em Espera ({heldSales.length})</h3>
+              <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setShowHoldList(false)}>Fechar</button>
+            </div>
+            {heldSales.length === 0 ? (
+              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: 20 }}>Nenhuma venda em espera</p>
+            ) : (
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {heldSales.map(h => {
+                  const total = (h.cart || []).reduce((s, i) => s + (i.preco_unitario * i.quantidade), 0);
+                  return (
+                    <div key={h.id} style={{ padding: 10, borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <strong>{h.label}</strong>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                          {new Date(h.savedAt).toLocaleString('pt-BR')} | {(h.cart || []).length} itens | {formatCurrency(total)}
+                          {h.cliente ? ` | ${h.cliente.nome}` : ''}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn-success" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => resumeHold(h)}>Retomar</button>
+                        <button className="btn-danger" style={{ padding: '4px 8px', fontSize: 12 }} onClick={() => removeHold(h.id)}>×</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Discount Auth Modal */}
+      {descontoAuth && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400 }} onClick={() => setDescontoAuth(null)}>
+          <div className="card" style={{ maxWidth: 420, width: '90vw', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: 12, color: 'var(--warning)' }}>Autorização de Desconto</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
+              Desconto de {descontoAuth.pct.toFixed(1)}% ultrapassa o limite de {descontoAuth.limite}%.
+              Informe credenciais de um administrador.
+            </p>
+            <div className="form-group">
+              <label>Login do Admin</label>
+              <input value={descontoAuth.login} onChange={e => setDescontoAuth({ ...descontoAuth, login: e.target.value, erro: '' })} autoFocus />
+            </div>
+            <div className="form-group">
+              <label>Senha</label>
+              <input type="password" value={descontoAuth.senha} onChange={e => setDescontoAuth({ ...descontoAuth, senha: e.target.value, erro: '' })}
+                onKeyDown={async e => {
+                  if (e.key === 'Enter') {
+                    try {
+                      const r = await window.api.post('/api/login', { login: descontoAuth.login, senha: descontoAuth.senha });
+                      if (r && r.cargo === 'admin') { setDescontoAuth(null); finalizeSale(true); }
+                      else setDescontoAuth({ ...descontoAuth, erro: 'Usuário não é administrador' });
+                    } catch (err) {
+                      setDescontoAuth({ ...descontoAuth, erro: err?.message || 'Credenciais inválidas' });
+                    }
+                  }
+                }} />
+              {descontoAuth.erro && <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4 }}>{descontoAuth.erro}</p>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setDescontoAuth(null)}>Cancelar</button>
+              <button className="btn-success" style={{ flex: 1 }} onClick={async () => {
+                try {
+                  const r = await window.api.post('/api/login', { login: descontoAuth.login, senha: descontoAuth.senha });
+                  if (r && r.cargo === 'admin') { setDescontoAuth(null); finalizeSale(true); }
+                  else setDescontoAuth({ ...descontoAuth, erro: 'Usuário não é administrador' });
+                } catch (err) {
+                  setDescontoAuth({ ...descontoAuth, erro: err?.message || 'Credenciais inválidas' });
+                }
+              }}>Autorizar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div onClick={() => setToast(null)} style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 400, background: toast.type === 'warning' ? 'var(--warning)' : 'var(--accent)', color: 'white', padding: '12px 18px', borderRadius: 8, maxWidth: 420, boxShadow: '0 4px 12px rgba(0,0,0,0.4)', whiteSpace: 'pre-line', fontSize: 13, cursor: 'pointer' }}>
+          {toast.msg}
+        </div>
+      )}
+
+      {modalEl}
     </div>
   );
 }

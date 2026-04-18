@@ -1,11 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { exportPDF } from '../utils/pdfExport';
+import { useModal } from '../components/Modal';
 
 export default function Auditoria() {
   const [logs, setLogs] = useState([]);
   const [filtro, setFiltro] = useState('');
+  const [verificacao, setVerificacao] = useState(null);
+  const { showAlert, modalEl } = useModal();
 
   useEffect(() => { loadData(); }, []);
+
+  const verificarIntegridade = async () => {
+    try {
+      const res = await window.api.get('/api/auditoria/verificar');
+      setVerificacao(res);
+      showAlert(res.ok
+        ? `✓ Integridade OK: ${res.total} registros auditados sem violação.`
+        : `⚠ Violação detectada! ${res.broken.length} de ${res.total} registros estão corrompidos.`
+      );
+    } catch {
+      showAlert('Erro ao verificar integridade');
+    }
+  };
 
   const loadData = () => {
     window.api.get('/api/auditoria?limit=500').then(setLogs);
@@ -48,9 +64,19 @@ export default function Auditoria() {
         <div style={{ display: 'flex', gap: 8 }}>
           <input placeholder="Filtrar..." value={filtro} onChange={e => setFiltro(e.target.value)} style={{ width: 220 }} />
           <button className="btn-secondary" onClick={exportToPDF}>Exportar PDF</button>
+          <button className="btn-secondary" onClick={verificarIntegridade}>Verificar Integridade</button>
           <button className="btn-secondary" onClick={loadData}>Atualizar</button>
         </div>
       </div>
+
+      {verificacao && (
+        <div className="card" style={{ marginBottom: 16, background: verificacao.ok ? 'rgba(0,200,100,0.1)' : 'rgba(200,0,0,0.1)' }}>
+          <strong>{verificacao.ok ? '✓ Log íntegro' : '⚠ Log corrompido'}</strong>
+          <span style={{ marginLeft: 12, fontSize: 13 }}>
+            {verificacao.total} registros • {verificacao.broken.length} violações
+          </span>
+        </div>
+      )}
 
       <div className="card">
         <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
@@ -75,6 +101,8 @@ export default function Auditoria() {
         </div>
         <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>{filtered.length} registros</p>
       </div>
+
+      {modalEl}
     </div>
   );
 }

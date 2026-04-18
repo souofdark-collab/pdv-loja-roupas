@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Auditoria from './Auditoria';
 import Backup from './Backup';
+import { useModal } from '../components/Modal';
 
 export default function Configuracoes({ user }) {
   const [tab, setTab] = useState('empresa');
@@ -12,9 +13,7 @@ export default function Configuracoes({ user }) {
   const [editingPag, setEditingPag] = useState(null);
   const [impressoras, setImpressoras] = useState([]);
   const [loadingImpressoras, setLoadingImpressoras] = useState(false);
-  const [modal, setModal] = useState(null);
-  const showAlert = (msg) => { document.activeElement?.blur(); setModal({ msg }); };
-  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
+  const { showAlert, askConfirm, modalEl } = useModal();
 
   useEffect(() => {
     loadData();
@@ -88,7 +87,7 @@ export default function Configuracoes({ user }) {
   };
 
   const handleSaveTema = async () => {
-    await window.api.put('/api/configuracoes', {
+    const payload = {
       cor_accent: configs.cor_accent,
       cor_bg: configs.cor_bg,
       cor_bg_secondary: configs.cor_bg_secondary,
@@ -96,8 +95,10 @@ export default function Configuracoes({ user }) {
       cor_text: configs.cor_text,
       cor_btn: configs.cor_btn,
       cor_sombra: configs.cor_sombra
-    });
+    };
+    await window.api.put('/api/configuracoes', payload);
     applyTheme(configs);
+    window.dispatchEvent(new CustomEvent('pdv:theme-updated', { detail: payload }));
     showAlert('Cores salvas!');
   };
 
@@ -159,6 +160,8 @@ export default function Configuracoes({ user }) {
           { id: 'empresa', label: 'Dados da Empresa' },
           { id: 'tema', label: 'Tema e Cores' },
           { id: 'pagamentos', label: 'Formas de Pagamento' },
+          { id: 'taxas_cartao', label: 'Taxas Cartão' },
+          { id: 'operacional', label: 'Operacional' },
           { id: 'impressora', label: 'Impressora' },
           { id: 'auditoria', label: 'Auditoria' },
           { id: 'backup', label: 'Backup' }
@@ -482,23 +485,145 @@ export default function Configuracoes({ user }) {
         </div>
       )}
 
+      {tab === 'taxas_cartao' && configs && (() => {
+        const parseTaxas = () => {
+          try { return JSON.parse(configs.taxas_cartao || '{}') || {}; } catch { return {}; }
+        };
+        const taxas = configs._taxas_cache || parseTaxas();
+        const setTaxa = (k, v) => {
+          const next = { ...taxas, [k]: v === '' ? '' : Number(v) };
+          setConfigs({ ...configs, _taxas_cache: next });
+        };
+        const parcelas = Array.from({ length: 18 }, (_, i) => i + 1);
+        return (
+          <div className="card">
+            <h3 style={{ marginBottom: 8 }}>Taxas do Cartão (juros da operadora)</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+              Percentual descontado pela operadora em cada venda. Usado para calcular o lucro real (valor líquido) — não é mostrado no recibo.
+            </p>
+            <div style={{ maxWidth: 500 }}>
+              <div className="form-group">
+                <label>Débito — Taxa (%)</label>
+                <input
+                  type="number" min="0" max="100" step="0.01"
+                  value={taxas.debito ?? ''}
+                  onChange={e => setTaxa('debito', e.target.value)}
+                  placeholder="Ex: 1.5"
+                />
+              </div>
+              <h4 style={{ margin: '20px 0 10px' }}>Crédito por parcela</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                {parcelas.map(p => (
+                  <div key={p} className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: 12 }}>{p}x (%)</label>
+                    <input
+                      type="number" min="0" max="100" step="0.01"
+                      value={taxas[`credito_${p}`] ?? ''}
+                      onChange={e => setTaxa(`credito_${p}`, e.target.value)}
+                      placeholder="0"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginTop: 24 }}>
+              <button className="btn-success" onClick={async () => {
+                const clean = {};
+                for (const [k, v] of Object.entries(taxas)) {
+                  const n = Number(v);
+                  if (v !== '' && !isNaN(n)) clean[k] = n;
+                }
+                await window.api.put('/api/configuracoes', { taxas_cartao: JSON.stringify(clean) });
+                showAlert('Taxas salvas!');
+              }}>Salvar</button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {tab === 'operacional' && configs && (
+        <div className="card">
+          <h3 style={{ marginBottom: 16 }}>Configurações Operacionais</h3>
+
+          <div className="form-group">
+            <label>Tamanhos disponíveis (separados por vírgula)</label>
+            <input
+              value={configs.tamanhos_estoque_text !== undefined ? configs.tamanhos_estoque_text : ((() => {
+                try { return JSON.parse(configs.tamanhos_estoque || '[]').join(', '); }
+                catch { return 'PP, P, M, G, GG, XG, XXG, 36, 38, 40, 42, 44, 46'; }
+              })())}
+              onChange={e => setConfigs({ ...configs, tamanhos_estoque_text: e.target.value })}
+              placeholder="PP, P, M, G, GG, 36, 38, 40..."
+            />
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+              Usado no cadastro de Estoque. Use vírgula para separar.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label>Desconto máximo sem senha (%)</label>
+            <input
+              type="number" min="0" max="100" step="0.1"
+              value={configs.desconto_max_sem_senha ?? 10}
+              onChange={e => setConfigs({ ...configs, desconto_max_sem_senha: e.target.value })}
+            />
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+              Acima deste percentual no PDV, exige senha de administrador. 0 desabilita.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label>Chave PIX (QR no cupom)</label>
+            <input
+              value={configs.pix_chave || ''}
+              onChange={e => setConfigs({ ...configs, pix_chave: e.target.value })}
+              placeholder="email@empresa.com, CPF, telefone ou chave aleatória"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Nome do recebedor PIX</label>
+            <input
+              value={configs.pix_nome || ''}
+              onChange={e => setConfigs({ ...configs, pix_nome: e.target.value })}
+              placeholder="Ex: Loja XYZ"
+              maxLength={25}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Cidade do recebedor PIX</label>
+            <input
+              value={configs.pix_cidade || ''}
+              onChange={e => setConfigs({ ...configs, pix_cidade: e.target.value })}
+              placeholder="Ex: São Paulo"
+              maxLength={15}
+            />
+          </div>
+
+          <button className="btn-success" onClick={async () => {
+            const payload = {};
+            if (configs.tamanhos_estoque_text !== undefined) {
+              const arr = configs.tamanhos_estoque_text.split(',').map(s => s.trim()).filter(Boolean);
+              payload.tamanhos_estoque = JSON.stringify(arr);
+            }
+            payload.desconto_max_sem_senha = Number(configs.desconto_max_sem_senha) || 0;
+            payload.pix_chave = configs.pix_chave || '';
+            payload.pix_nome = configs.pix_nome || '';
+            payload.pix_cidade = configs.pix_cidade || '';
+            await window.api.put('/api/configuracoes', payload);
+            showAlert('Configurações salvas!');
+          }}>
+            Salvar
+          </button>
+        </div>
+      )}
+
       {tab === 'auditoria' && <Auditoria />}
 
       {tab === 'backup' && <Backup user={user} />}
 
-      {modal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
-          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
-            {modal.onConfirm ? (
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
-                <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
-              </div>
-            ) : <button className="btn-primary" onClick={() => setModal(null)}>OK</button>}
-          </div>
-        </div>
-      )}
+      {modalEl}
     </div>
   );
 }

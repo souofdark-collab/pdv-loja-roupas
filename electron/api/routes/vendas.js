@@ -14,7 +14,8 @@ module.exports = (db) => {
     const result = vendas.map(v => ({
       ...v,
       cliente_nome: (clientes.find(c => c.id === v.cliente_id) || {}).nome || null,
-      usuario_nome: (usuarios.find(u => u.id === v.usuario_id) || {}).nome || ''
+      usuario_nome: (usuarios.find(u => u.id === v.usuario_id) || {}).nome || '',
+      vendedor_nome: v.vendedor_id ? ((usuarios.find(u => u.id === v.vendedor_id) || {}).nome || '') : ''
     }));
     result.sort((a, b) => new Date(b.data) - new Date(a.data));
     res.json(result);
@@ -29,15 +30,22 @@ module.exports = (db) => {
     const itens = db.select('venda_itens').filter(i => i.venda_id === Number(req.params.id));
     const produtos = db.select('produtos');
 
-    const itensComNome = itens.map(i => ({
-      ...i,
-      produto_nome: (produtos.find(p => p.id === i.produto_id) || {}).nome || ''
-    }));
+    const estoqueAll = db.select('estoque');
+    const itensComNome = itens.map(i => {
+      const estItem = estoqueAll.find(e => e.id === i.estoque_id) || {};
+      return {
+        ...i,
+        produto_nome: (produtos.find(p => p.id === i.produto_id) || {}).nome || '',
+        tamanho: i.tamanho || estItem.tamanho || '',
+        cor: i.cor || estItem.cor || ''
+      };
+    });
 
     res.json({
       ...venda,
       cliente_nome: (clientes.find(c => c.id === venda.cliente_id) || {}).nome || null,
       usuario_nome: (usuarios.find(u => u.id === venda.usuario_id) || {}).nome || '',
+      vendedor_nome: venda.vendedor_id ? ((usuarios.find(u => u.id === venda.vendedor_id) || {}).nome || '') : '',
       itens: itensComNome
     });
   });
@@ -67,6 +75,8 @@ module.exports = (db) => {
     if (!usuario_id) return res.status(400).json({ error: 'Usuário obrigatório' });
     if (!forma_pagamento) return res.status(400).json({ error: 'Forma de pagamento obrigatória' });
     if (!Array.isArray(itens) || itens.length === 0) return res.status(400).json({ error: 'Carrinho vazio' });
+    const isFiado = /fiado|crediario|crediário/i.test(forma_pagamento);
+    if (isFiado && !cliente_id) return res.status(400).json({ error: 'Cliente obrigatório para venda fiado' });
 
     // Validate stock before writing anything
     for (const item of itens) {
@@ -92,24 +102,51 @@ module.exports = (db) => {
     const descontoVal = desconto || 0;
     const total = subtotal - descontoVal;
 
+    // Compute card fee (taxa_cartao) for credit/debit
+    let taxa_cartao_pct = 0;
+    const fpLower = String(forma_pagamento || '').toLowerCase();
+    const isDebito = /d[ée]bito/.test(fpLower);
+    const isCredito = /cr[eé]dito/.test(fpLower);
+    if (isDebito || isCredito) {
+      try {
+        const cfgRow = db.findOne('configuracoes', { chave: 'taxas_cartao' });
+        if (cfgRow && cfgRow.valor) {
+          const taxas = JSON.parse(cfgRow.valor);
+          if (isDebito) {
+            taxa_cartao_pct = Number(taxas.debito) || 0;
+          } else {
+            const p = Math.max(1, Number(parcelas) || 1);
+            taxa_cartao_pct = Number(taxas[`credito_${p}`]) || Number(taxas.credito_1) || 0;
+          }
+        }
+      } catch {}
+    }
+    const valor_taxa_cartao = Number((total * taxa_cartao_pct / 100).toFixed(2));
+    const valor_liquido = Number((total - valor_taxa_cartao).toFixed(2));
+
     const now = new Date().toISOString();
     const result = db.insert('vendas', {
       cliente_id: cliente_id || null, usuario_id, vendedor_id: vendedor_id || null,
       subtotal, desconto: descontoVal, total, forma_pagamento,
       parcelas: parcelas || null,
+      taxa_cartao_pct, valor_taxa_cartao, valor_liquido,
+      saldo_devedor: isFiado ? total : 0,
       status: 'finalizada', data: now
     });
 
     const vendaId = result.lastInsertRowid;
 
     for (const item of itens) {
+      const estItemForInsert = db.findOne('estoque', { id: item.estoque_id }) || {};
       db.insert('venda_itens', {
         venda_id: vendaId,
         produto_id: item.produto_id,
         estoque_id: item.estoque_id,
         quantidade: item.quantidade,
         preco_unitario: item.preco_unitario,
-        desconto_item: item.desconto_item || 0
+        desconto_item: item.desconto_item || 0,
+        tamanho: estItemForInsert.tamanho || '',
+        cor: estItemForInsert.cor || ''
       });
 
       const estoqueItem = db.findOne('estoque', { id: item.estoque_id });
@@ -140,12 +177,19 @@ module.exports = (db) => {
     const venda = db.findOne('vendas', { id: vendaId });
     const clientes = db.select('clientes');
     const produtos = db.select('produtos');
+    const usuarios = db.select('usuarios');
     const vendaItens = db.select('venda_itens').filter(i => i.venda_id === vendaId).map(i => ({
       ...i,
       produto_nome: (produtos.find(p => p.id === i.produto_id) || {}).nome || ''
     }));
 
-    res.json({ ...venda, itens: vendaItens });
+    res.json({
+      ...venda,
+      cliente_nome: (clientes.find(c => c.id === venda.cliente_id) || {}).nome || null,
+      usuario_nome: (usuarios.find(u => u.id === venda.usuario_id) || {}).nome || '',
+      vendedor_nome: venda.vendedor_id ? ((usuarios.find(u => u.id === venda.vendedor_id) || {}).nome || '') : '',
+      itens: vendaItens
+    });
   });
 
   return router;

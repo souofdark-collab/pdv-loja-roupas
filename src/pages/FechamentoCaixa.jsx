@@ -59,6 +59,7 @@ export default function FechamentoCaixa({ user }) {
       ['Total Vendas', formatCurrency(fechamento.total_vendas)],
       ['Despesas', formatCurrency(fechamento.total_despesas)],
       ['Devoluções', fechamento.devolucoes_qtd > 0 ? `-${formatCurrency(fechamento.total_devolucoes)} (${fechamento.devolucoes_qtd}x)` : 'Nenhuma'],
+      ['Taxas Cartão', fechamento.total_taxas_cartao > 0 ? `-${formatCurrency(fechamento.total_taxas_cartao)}` : 'Nenhuma'],
       ['Líquido', formatCurrency(fechamento.liquido)],
       ['Dinheiro em Caixa', formatCurrency(fechamento.dinheiro_em_caixa)],
       ['Ticket Médio', formatCurrency(fechamento.ticket_medio)]
@@ -145,6 +146,13 @@ export default function FechamentoCaixa({ user }) {
             {fechamento.devolucoes_qtd > 0 ? `-${formatCurrency(fechamento.total_devolucoes)}` : formatCurrency(0)}
           </p>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fechamento.devolucoes_qtd} devolução(ões)</p>
+        </div>
+        <div className="card" style={{ textAlign: 'center' }}>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>Taxas Cartão</p>
+          <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--danger)' }}>
+            {fechamento.total_taxas_cartao > 0 ? `-${formatCurrency(fechamento.total_taxas_cartao)}` : formatCurrency(0)}
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>juros operadora</p>
         </div>
         <div className="card" style={{ textAlign: 'center' }}>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>Líquido</p>

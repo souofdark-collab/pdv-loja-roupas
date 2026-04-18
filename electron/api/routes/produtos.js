@@ -18,9 +18,12 @@ module.exports = (db) => {
 
   router.get('/produtos/buscar', (req, res) => {
     const { q } = req.query;
-    const produtos = db.select('produtos', { ativo: 1 }).filter(p =>
-      p.nome.toLowerCase().includes((q || '').toLowerCase()) || (p.codigo_barras && p.codigo_barras.includes(q))
-    );
+    const produtos = db.select('produtos', { ativo: 1 }).filter(p => {
+      const extras = Array.isArray(p.codigos_barras_extras) ? p.codigos_barras_extras : [];
+      return p.nome.toLowerCase().includes((q || '').toLowerCase()) ||
+        (p.codigo_barras && p.codigo_barras.includes(q)) ||
+        extras.some(bc => bc && bc.includes(q));
+    });
     const categorias = db.select('categorias');
     const result = produtos.map(p => {
       const pCatId = typeof p.categoria_id === 'string' ? Number(p.categoria_id) : p.categoria_id;
@@ -37,31 +40,64 @@ module.exports = (db) => {
     res.json({ ...produto, categoria_nome: cat ? cat.nome : null });
   });
 
-  router.post('/produtos', (req, res) => {
-    const { nome, descricao, preco_custo, preco_venda, codigo_barras, categoria_id } = req.body;
-    if (codigo_barras) {
-      const dup = db.select('produtos', { ativo: 1 }).find(p => p.codigo_barras === codigo_barras);
-      if (dup) return res.status(400).json({ error: `Código de barras já cadastrado no produto "${dup.nome}"` });
+  // Helper: checks if a barcode is already used by another product
+  const barcodeConflict = (barcode, excludeId = null) => {
+    if (!barcode) return null;
+    return db.select('produtos', { ativo: 1 }).find(p => {
+      if (excludeId !== null && p.id === excludeId) return false;
+      return p.codigo_barras === barcode;
+    }) || null;
+  };
+
+  const genBarcode = () => `789${(Date.now() + Math.floor(Math.random() * 99999)).toString().slice(-10)}`;
+
+  const genUniqueBarcode = (usados) => {
+    for (let tentativa = 0; tentativa < 20; tentativa++) {
+      const bc = genBarcode();
+      if (!usados.has(bc) && !barcodeConflict(bc)) {
+        usados.add(bc);
+        return bc;
+      }
     }
-    const result = db.insert('produtos', { nome, descricao: descricao || '', preco_custo: preco_custo || 0, preco_venda: preco_venda || 0, codigo_barras: codigo_barras || '', categoria_id: categoria_id || null, ativo: 1, criado_em: new Date().toISOString() });
-    db.insert('estoque', { produto_id: result.lastInsertRowid, tamanho: 'M', cor: 'Única', quantidade: 0, minimo: 5 });
+    return `789${Date.now()}${Math.floor(Math.random() * 1e6)}`.slice(0, 16);
+  };
+
+  router.post('/produtos', (req, res) => {
+    const { nome, descricao, preco_custo, preco_venda, codigo_barras, num_variacoes, categoria_id } = req.body;
+    const qtd = Math.max(1, Number(num_variacoes) || 1);
+    const now = new Date().toISOString();
+    const created = [];
+    const usados = new Set();
+
+    for (let i = 0; i < qtd; i++) {
+      const bc = (i === 0 && codigo_barras) ? codigo_barras : genUniqueBarcode(usados);
+      if (bc) {
+        const dup = barcodeConflict(bc);
+        if (dup) return res.status(400).json({ error: `Código de barras "${bc}" já cadastrado no produto "${dup.nome}"` });
+        usados.add(bc);
+      }
+      const result = db.insert('produtos', { nome, descricao: descricao || '', preco_custo: preco_custo || 0, preco_venda: preco_venda || 0, codigo_barras: bc, categoria_id: categoria_id || null, ativo: 1, criado_em: now });
+      const produtoId = result.lastInsertRowid;
+      db.insert('estoque', { produto_id: produtoId, tamanho: '', cor: '', quantidade: 0, minimo: 5, codigo_barras: bc });
+      created.push(produtoId);
+    }
     const { usuario_id: uid } = req.body;
     if (uid) {
       db.insert('log_acoes', {
         usuario_id: uid,
         usuario_nome: (db.findOne('usuarios', { id: uid }) || {}).nome || '',
         acao: 'Produto Cadastrado',
-        detalhes: `${nome} | R$ ${preco_venda}`,
-        criado_em: new Date().toISOString()
+        detalhes: `${nome} | R$ ${preco_venda} | ${qtd} unidade(s)`,
+        criado_em: now
       });
     }
-    res.json({ id: result.lastInsertRowid, ...req.body });
+    res.json({ ids: created, count: qtd, nome });
   });
 
   router.put('/produtos/:id', (req, res) => {
     const { nome, descricao, preco_custo, preco_venda, codigo_barras, categoria_id, ativo, usuario_id } = req.body;
     if (codigo_barras) {
-      const dup = db.select('produtos', { ativo: 1 }).find(p => p.codigo_barras === codigo_barras && p.id !== Number(req.params.id));
+      const dup = barcodeConflict(codigo_barras, Number(req.params.id));
       if (dup) return res.status(400).json({ error: `Código de barras já cadastrado no produto "${dup.nome}"` });
     }
     const atual = db.findOne('produtos', { id: Number(req.params.id) });

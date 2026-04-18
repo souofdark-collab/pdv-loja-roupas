@@ -14,6 +14,9 @@ npm run dev
 # Build para produção
 npm run build          # build do frontend (Vite → dist/)
 npm run electron:build # build completo + instalador (electron-builder → release/)
+
+# Testes (smoke tests — vitest + supertest)
+npm test
 ```
 
 **Login padrão:** `admin` / `admin123`
@@ -43,17 +46,20 @@ git push origin master
 ```
 pdv-loja-roupas/
 ├── src/                        # Frontend React
-│   ├── App.jsx                 # Roteamento, estado global (user, theme), modal PDV fechar
+│   ├── App.jsx                 # Roteamento, estado global (user, theme), ErrorBoundary wrap
 │   ├── index.css               # Variáveis CSS globais (tema dark, cores customizáveis)
 │   ├── components/
-│   │   └── Layout.jsx          # Sidebar fixa (height:100vh, overflow:hidden) + badge estoque baixo
+│   │   ├── Layout.jsx          # Sidebar fixa (height:100vh, overflow:hidden) + badge estoque baixo
+│   │   ├── Modal.jsx           # Modal centralizado + hook useModal() — OBRIGATÓRIO para todos os dialogs
+│   │   └── ErrorBoundary.jsx   # Captura erros React e exibe fallback amigável
 │   ├── pages/
 │   │   ├── Login.jsx
-│   │   ├── PDV.jsx             # Ponto de venda principal
-│   │   ├── Vendas.jsx          # Histórico + cancelamento + reimpressão
+│   │   ├── Dashboard.jsx
+│   │   ├── PDV.jsx             # Ponto de venda; freeza vendedor/caixa em saleVendedor/saleCaixa
+│   │   ├── Vendas.jsx          # Histórico + cancelamento + reimpressão (via buildReceiptHTML)
 │   │   ├── Produtos.jsx        # CRUD + criação de N variações de uma vez
 │   │   ├── Estoque.jsx         # CRUD + movimentação + busca + código de barras por item
-│   │   ├── ControleCaixa.jsx   # 3 abas: Estoque Total / Estoque Atual / Receita x Despesas
+│   │   ├── ControleCaixa.jsx   # 3 abas: Estoque Total / Estoque Atual / Receita x Despesas (com taxas cartão)
 │   │   ├── Clientes.jsx
 │   │   ├── Promocoes.jsx
 │   │   ├── Despesas.jsx
@@ -62,20 +68,23 @@ pdv-loja-roupas/
 │   │   ├── Relatorios.jsx
 │   │   ├── Auditoria.jsx
 │   │   ├── Usuarios.jsx
-│   │   ├── Configuracoes.jsx   # Abas: Empresa, Tema, Pagamentos, Impressora, Auditoria, Backup
+│   │   ├── Configuracoes.jsx   # Abas: Empresa, Tema, Pagamentos, Taxas Cartão, Impressora, Auditoria, Backup
 │   │   └── Backup.jsx
 │   └── utils/
-│       └── pdfExport.js        # PDF via window.print() em iframe oculto
+│       ├── pdfExport.js        # PDF via window.print() em iframe oculto
+│       ├── receipt.js          # buildReceiptHTML — HTML único do cupom (PDV + reimpressão)
+│       ├── pix.js              # buildPixPayload — payload EMV QR PIX
+│       └── fuzzySearch.js      # Busca tolerante a acentos/typos
 │
 ├── electron/
 │   ├── main.js                 # Entry point Electron + Express :3001 + IPC handlers
 │   ├── preload.js              # window.api (fetch) + window.electron (IPC)
 │   └── api/
-│       ├── db.js               # Banco JSON em memória
+│       ├── db.js               # Banco JSON em memória (atomic write + hash-chain audit)
 │       └── routes/
 │           ├── auth.js
 │           ├── backup.js
-│           ├── vendas.js       # Salva tamanho/cor em venda_itens; GET/:id faz join com estoque
+│           ├── vendas.js       # Salva tamanho/cor; calcula taxa_cartao; POST retorna vendedor/usuario/cliente_nome
 │           ├── estoque.js      # GET retorna codigo_barras do item (fallback: codigo do produto)
 │           ├── produtos.js     # POST cria N produtos + N entradas de estoque com barcodes únicos
 │           ├── clientes.js
@@ -85,9 +94,14 @@ pdv-loja-roupas/
 │           ├── usuarios.js
 │           ├── trocas.js
 │           ├── caixa.js
+│           ├── fiado.js        # Contas em aberto + pagamentos fiado/crediário
 │           ├── relatorios.js
 │           ├── auditoria.js
 │           └── configuracoes.js
+│
+├── tests/                      # Smoke tests (vitest + supertest)
+│   ├── helpers/buildApp.js     # Monta Express em tmp dir para testes isolados
+│   └── smoke.test.js           # Auth, vendas, cancelamento, fechamento, backup, auditoria
 │
 ├── vite.config.js              # Apenas react() — SEM vite-plugin-electron
 └── package.json
@@ -112,7 +126,11 @@ pdv-loja-roupas/
 **Localização:** `%APPDATA%\pdv-loja-roupas\<tabela>.json`
 
 **Tabelas:**
-`usuarios`, `clientes`, `categorias`, `produtos`, `estoque`, `estoque_movimentacoes`, `vendas`, `venda_itens`, `promocoes`, `promocoes_regras`, `despesas_categorias`, `despesas`, `configuracoes`, `formas_pagamento`, `trocas`, `historico_precos`, `log_acoes`, `abertura_caixa`
+`usuarios`, `clientes`, `categorias`, `produtos`, `estoque`, `estoque_movimentacoes`, `vendas`, `venda_itens`, `promocoes`, `promocoes_regras`, `despesas_categorias`, `despesas`, `configuracoes`, `formas_pagamento`, `trocas`, `historico_precos`, `log_acoes`, `abertura_caixa`, `fiado_pagamentos`
+
+**Campos especiais em `vendas`:** `taxa_cartao_pct`, `valor_taxa_cartao`, `valor_liquido` (calculados no POST), `saldo_devedor` (fiado), `motivo_cancelamento`.
+
+**Auditoria imune a adulteração:** `log_acoes` tem cadeia hash SHA256 (`hash_anterior` + `hash`). Verificação em `db.verifyAuditChain()` e via `GET /api/auditoria/verificar`.
 
 **API do db:**
 ```js
@@ -187,33 +205,44 @@ window.electron.print(content)  // legado
 
 Qualquer dialog nativo causa perda de foco no OS — o teclado para de funcionar até o usuário clicar na janela. Este bug foi corrigido em **todas** as páginas com custo alto. Já ocorreu dezenas de vezes.
 
-### Padrão obrigatório
+### Padrão obrigatório — hook `useModal()` em `src/components/Modal.jsx`
 
 ```jsx
-const [modal, setModal] = useState(null);
-const showAlert  = (msg)     => { document.activeElement?.blur(); setModal({ msg }); };
-const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
-```
+import { useModal } from '../components/Modal';
 
-JSX do modal (no final do `return`, antes do `</div>` fechador):
+function MinhaPagina() {
+  const { showAlert, askConfirm, askInput, modalEl } = useModal();
 
-```jsx
-{modal && (
-  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
-    <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
-      <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
-      {modal.onConfirm ? (
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-          <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
-          <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
-        </div>
-      ) : <button className="btn-primary" onClick={() => setModal(null)}>OK</button>}
+  const handleDelete = (id) => {
+    askConfirm('Excluir este item?', async () => {
+      await window.api.delete(`/api/x/${id}`);
+      showAlert('Item excluído');
+    }, { title: 'Confirmar exclusão', danger: true });
+  };
+
+  const handleRefuse = (id) => {
+    askInput('Motivo da recusa', async (motivo) => {
+      await window.api.put(`/api/trocas/${id}`, { status: 'recusada', observacao: motivo });
+    }, { title: 'Recusar', placeholder: 'Digite o motivo...', requireInput: true, danger: true });
+  };
+
+  return (
+    <div>
+      {/* ... conteúdo ... */}
+      {modalEl}
     </div>
-  </div>
-)}
+  );
+}
 ```
 
-Para substituir `prompt()` (input do usuário): adicione `inputValue` ao estado do modal e um `<input>` no JSX. Ver `Trocas.jsx` como referência completa.
+**API do hook:**
+- `showAlert(msg, opts?)` — alerta simples com botão OK
+- `askConfirm(msg, onConfirm, opts?)` — confirmação (Cancelar / Confirmar)
+- `askInput(msg, onConfirm, opts?)` — prompt com `<input>`; recebe valor digitado
+- `opts`: `{ title, danger, confirmLabel, cancelLabel, placeholder, inputType, requireInput, maxWidth }`
+- Teclado: Enter confirma, Escape fecha. `activeElement.blur()` é chamado automaticamente.
+
+**Nunca crie o modal inline em cada página.** Se precisar de algo fora do escopo do hook, estenda `Modal.jsx` — não copie JSX entre páginas.
 
 ---
 
@@ -237,6 +266,9 @@ Já ocorreu 3× neste projeto: `barcodeMode` em PDV.jsx, `barcodeMode` em Produt
 - Leitura de código de barras: busca primeiro em `estoque.codigo_barras` (item específico), depois em `produto.codigo_barras`
 - `addToCart(produto, estoqueItemOverride)` aceita item de estoque específico para garantir baixa correta
 - Promoções por produto aplicadas automaticamente; badge com preço riscado no carrinho
+- HTML do cupom é gerado por **`buildReceiptHTML()` em `src/utils/receipt.js`** (compartilhado com reimpressão em Vendas)
+- Recibo exibe **apenas o Vendedor selecionado** — nunca o caixa/usuário logado
+- `saleVendedor` e `saleCaixa` são estados que **congelam os valores no momento da venda** (antes do reset do formulário)
 - Recibo exibe tamanho/cor somente quando preenchidos (não mostra `-/-`)
 - Impressão: silenciosa se `impressora_padrao` configurada, senão abre diálogo
 - Fechar PDV com itens no carrinho exige confirmação (modal React, não `confirm()`)
@@ -273,13 +305,14 @@ Página com **3 abas**:
 - Tabela de trocas/devoluções com badge de pendentes
 
 **Aba 3 — Receita x Despesas**
-- Cards: Receita Realizada, Total Despesas, Saldo do Caixa, Margem Líquida
-- Barra visual de distribuição (despesas vs saldo)
+- Cards (5): Receita Realizada, Total Despesas, **Taxas de Cartão**, Saldo do Caixa, Margem Líquida
+- Barra visual de 3 segmentos (despesas / taxas cartão / saldo)
 - Tabela de despesas por categoria com % sobre receita
-- Resumo financeiro: Receita − Descontos − Despesas = Saldo Líquido
+- Resumo: Receita − Despesas − Taxas Cartão = Saldo Líquido
 
 ### Configurações (src/pages/Configuracoes.jsx)
-- Abas: Dados da Empresa, Tema e Cores, Formas de Pagamento, Impressora, Auditoria, Backup
+- Abas: Dados da Empresa, Tema e Cores, Formas de Pagamento, **Taxas Cartão**, Impressora, Auditoria, Backup
+- Aba Taxas Cartão: percentuais por forma (`debito`, `credito_1`...`credito_12`) salvos em `configuracoes.chave = 'taxas_cartao'` (JSON)
 - Aba Impressora: lista via `window.electron.getPrinters()`, salva `impressora_padrao`, botão "Imprimir Teste"
 - CNPJ com validação de dígitos verificadores
 
@@ -323,6 +356,10 @@ Registra automaticamente: Login, Nova Venda, Cancelamento, Entrada/Saída/Ajuste
 | POST | `/api/caixa/abertura` | Abrir caixa |
 | PUT | `/api/caixa/fechamento/:id` | Fechar caixa |
 | GET | `/api/promocoes/ativas` | Promoções ativas com regras |
+| GET | `/api/fiado/clientes` | Clientes com saldo devedor agregado |
+| GET | `/api/fiado/cliente/:cliente_id` | Vendas + pagamentos fiado de um cliente |
+| POST | `/api/fiado/pagamento` | Registra pagamento e abate `saldo_devedor` |
+| GET | `/api/auditoria/verificar` | Valida cadeia hash SHA256 do log |
 
 ## IPC Electron
 
@@ -352,6 +389,21 @@ const [tab, setTab] = useState('primeiro');
 // botão de tab:
 style={{ background: tab === id ? 'var(--accent)' : 'transparent', borderRadius: tab === id ? '8px 8px 0 0' : 0, ... }}
 ```
+
+---
+
+## Testes
+
+**Stack:** `vitest` + `supertest`. Arquivos em `tests/` (ESM, usam `createRequire` para importar backend CJS).
+
+```bash
+npm test
+```
+
+- `tests/helpers/buildApp.js` monta um Express isolado em diretório temporário (`process.env.APPDATA` e `HOME` sobrescritos), recarregando `db.js` e todas as rotas com `require.cache` limpo.
+- `tests/smoke.test.js` cobre: login (OK/fail), criação de venda (com baixa de estoque + log), bloqueio por estoque insuficiente, venda fiado exige cliente, cálculo de taxa cartão por parcela, cancelamento com motivo + log, fechamento de caixa, export/restore de backup, verificação de cadeia de auditoria (ok + detecção de violação).
+
+Rodar `npm test` antes de qualquer commit que mexa em rotas, db ou auditoria.
 
 ---
 
@@ -386,3 +438,13 @@ Fix: `forma_pagamento || venda?.forma_pagamento`.
 
 ### Estoque GET sobrescrevia código de barras do item (RESOLVIDO)
 Campo do produto renomeado para `codigo_barras_produto`; `codigo_barras` do item preservado com fallback.
+
+### Recibo mostrava usuário logado em vez do vendedor selecionado (RESOLVIDO — 2026-04-18)
+Raiz: `setSelectedVendedor(null)` era executado antes do recibo ser renderizado. Fix:
+1. Novos estados `saleVendedor` / `saleCaixa` em PDV.jsx congelam os valores no instante da venda.
+2. Reset do vendedor movido para o fechamento do recibo (ESC / "Nova Venda"), não para logo após o POST.
+3. `POST /api/vendas` agora retorna `vendedor_nome`, `usuario_nome` e `cliente_nome` na resposta.
+4. `buildReceiptHTML` exibe **apenas Vendedor** (linha de Caixa removida) — pedido explícito do usuário.
+
+### `alert()` nativo reintroduzido em Vendas.jsx (RESOLVIDO — 2026-04-18)
+Regressão da regra crítica de dialogs. Substituído por `useModal().showAlert`.

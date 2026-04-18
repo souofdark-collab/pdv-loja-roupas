@@ -1,25 +1,75 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { exportPDF } from '../utils/pdfExport';
+import { fuzzyMatch } from '../utils/fuzzySearch';
+import { useModal } from '../components/Modal';
 
-const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG', '36', '38', '40', '42', '44', '46'];
+const TAMANHOS_DEFAULT = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG', '36', '38', '40', '42', '44', '46'];
 
 export default function Estoque() {
   const [estoque, setEstoque] = useState([]);
   const [produtos, setProdutos] = useState([]);
+  const [TAMANHOS, setTamanhos] = useState(TAMANHOS_DEFAULT);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ produto_id: '', tamanho: 'M', cor: '', quantidade: '', minimo: '5' });
   const [showMovForm, setShowMovForm] = useState(false);
   const [movForm, setMovForm] = useState({ estoque_id: '', tipo: 'entrada', quantidade: '', motivo: '' });
   const [search, setSearch] = useState('');
+  const [scanMode, setScanMode] = useState(false);
+  const [scanInput, setScanInput] = useState('');
+  const [scanError, setScanError] = useState('');
+  const scanRef = useRef(null);
 
   useEffect(() => {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (scanMode) {
+      setScanInput('');
+      setScanError('');
+      setTimeout(() => scanRef.current?.focus(), 50);
+    }
+  }, [scanMode]);
+
+  useEffect(() => {
+    if (!scanMode) return;
+    const handler = () => {
+      if (document.activeElement !== scanRef.current && !showForm && !showMovForm) {
+        scanRef.current?.focus();
+      }
+    };
+    const t = setInterval(handler, 500);
+    return () => clearInterval(t);
+  }, [scanMode, showForm, showMovForm]);
+
+  const handleScanSubmit = (e) => {
+    e.preventDefault();
+    const code = scanInput.trim();
+    if (!code) return;
+    const item = estoque.find(it => it.codigo_barras === code);
+    if (item) {
+      setScanInput('');
+      setScanError('');
+      handleOpenForm(item);
+    } else {
+      setScanError(`Código não encontrado: "${code}"`);
+      setScanInput('');
+      setTimeout(() => scanRef.current?.focus(), 50);
+    }
+  };
+
   const loadData = () => {
     window.api.get('/api/estoque').then(setEstoque);
     window.api.get('/api/produtos').then(setProdutos);
+    window.api.get('/api/configuracoes').then(cfg => {
+      if (cfg && cfg.tamanhos_estoque) {
+        try {
+          const parsed = JSON.parse(cfg.tamanhos_estoque);
+          if (Array.isArray(parsed) && parsed.length > 0) setTamanhos(parsed);
+        } catch { /* use default */ }
+      }
+    }).catch(() => {});
   };
 
   const handleOpenForm = (item = null) => {
@@ -62,8 +112,7 @@ export default function Estoque() {
     loadData();
   };
 
-  const [modal, setModal] = useState(null);
-  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
+  const { askConfirm, modalEl } = useModal();
 
   const handleDelete = async (id) => {
     askConfirm('Excluir este item do estoque?', async () => {
@@ -72,12 +121,59 @@ export default function Estoque() {
     });
   };
 
+  const printEtiqueta = (item, qtd = 1) => {
+    const produto = produtos.find(p => p.id === item.produto_id);
+    const nome = item.produto_nome || (produto ? produto.nome : '');
+    const bc = item.codigo_barras || '';
+    const preco = produto ? Number(produto.preco_venda).toFixed(2) : '-';
+    const cells = Array.from({ length: qtd }).map(() => `
+      <div class="etiq">
+        <div class="nome">${nome}</div>
+        <div class="variacao">${item.tamanho || ''} ${item.cor ? '• ' + item.cor : ''}</div>
+        <div class="bc-wrapper">
+          <svg id="bc-${bc}" class="barcode"></svg>
+        </div>
+        <div class="code">${bc}</div>
+        <div class="preco">R$ ${preco}</div>
+      </div>
+    `).join('');
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html><head><title>Etiqueta - ${nome}</title>
+      <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+      <style>
+        @page { size: 50mm 30mm; margin: 2mm; }
+        body { margin: 0; font-family: Arial, sans-serif; }
+        .sheet { display: flex; flex-wrap: wrap; gap: 3mm; padding: 3mm; }
+        .etiq { width: 50mm; height: 30mm; border: 1px dashed #ccc; padding: 2mm; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; page-break-inside: avoid; }
+        .nome { font-size: 9pt; font-weight: bold; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .variacao { font-size: 7pt; color: #555; }
+        .bc-wrapper { text-align: center; }
+        .barcode { max-width: 100%; height: 10mm; }
+        .code { font-size: 7pt; text-align: center; font-family: monospace; }
+        .preco { font-size: 10pt; font-weight: bold; text-align: right; }
+        @media print { .etiq { border: none; } }
+      </style>
+      </head><body><div class="sheet">${cells}</div>
+      <script>
+        window.addEventListener('load', function(){
+          try {
+            document.querySelectorAll('.barcode').forEach(function(el){
+              JsBarcode(el, '${bc}', { format: 'CODE128', width: 1.6, height: 40, displayValue: false, margin: 0 });
+            });
+          } catch(err) {}
+          setTimeout(function(){ window.print(); }, 400);
+        });
+      </script>
+      </body></html>`);
+    w.document.close();
+  };
+
   const filteredEstoque = estoque.filter(e => {
     if (!search) return true;
-    const q = search.toLowerCase();
-    return (e.produto_nome || '').toLowerCase().includes(q) ||
-      (e.tamanho || '').toLowerCase().includes(q) ||
-      (e.cor || '').toLowerCase().includes(q) ||
+    return fuzzyMatch(e.produto_nome, search) ||
+      fuzzyMatch(e.tamanho, search) ||
+      fuzzyMatch(e.cor, search) ||
       (e.codigo_barras || '').includes(search);
   });
 
@@ -86,6 +182,9 @@ export default function Estoque() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h1>Controle de Estoque</h1>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className={scanMode ? 'btn-success' : 'btn-secondary'} onClick={() => setScanMode(!scanMode)}>
+            {scanMode ? '✓ Modo Scan' : 'Modo Scan'}
+          </button>
           <button className="btn-warning" onClick={() => setShowMovForm(!showMovForm)}>
             Movimentação
           </button>
@@ -94,6 +193,24 @@ export default function Estoque() {
           </button>
         </div>
       </div>
+
+      {scanMode && (
+        <div className="card" style={{ marginBottom: 16, background: 'var(--accent)', color: '#000' }}>
+          <form onSubmit={handleScanSubmit} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontWeight: 700 }}>📷 Scan:</span>
+            <input
+              ref={scanRef}
+              value={scanInput}
+              onChange={e => setScanInput(e.target.value)}
+              placeholder="Aponte o leitor para um código de barras..."
+              style={{ flex: 1, fontSize: 16 }}
+              autoFocus
+            />
+            <button type="submit" className="btn-primary">Buscar</button>
+          </form>
+          {scanError && <p style={{ marginTop: 8, color: 'crimson', fontWeight: 700 }}>{scanError}</p>}
+        </div>
+      )}
 
       {showForm && (
         <div className="card" style={{ marginBottom: 24 }}>
@@ -238,6 +355,9 @@ export default function Estoque() {
                     <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(e)}>
                       Editar
                     </button>
+                    <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} disabled={!e.codigo_barras} title={!e.codigo_barras ? 'Sem código de barras' : 'Imprimir etiqueta'} onClick={() => printEtiqueta(e, 1)}>
+                      Etiqueta
+                    </button>
                     <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(e.id)}>
                       Excluir
                     </button>
@@ -250,17 +370,7 @@ export default function Estoque() {
         </div>
       </div>
 
-      {modal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
-          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
-              <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {modalEl}
     </div>
   );
 }

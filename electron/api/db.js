@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 
 const DATA_DIR = path.join(process.env.APPDATA || process.env.HOME, 'pdv-loja-roupas');
@@ -13,16 +14,24 @@ const TABLES = [
   'venda_itens', 'promocoes', 'promocoes_regras',
   'despesas_categorias', 'despesas',
   'configuracoes', 'formas_pagamento',
-  'trocas', 'historico_precos', 'log_acoes', 'abertura_caixa'
+  'trocas', 'historico_precos', 'log_acoes', 'abertura_caixa',
+  'fiado_pagamentos'
 ];
 
 // In-memory storage
 const db = {
   _data: {},
+  _lastIds: {},
   _save(table) {
     const filePath = path.join(DATA_DIR, `${table}.json`);
     const tmpPath = filePath + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(this._data[table] || [], null, 2));
+    const fd = fs.openSync(tmpPath, 'w');
+    try {
+      fs.writeSync(fd, JSON.stringify(this._data[table] || [], null, 2));
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
     fs.renameSync(tmpPath, filePath);
   },
   _load(table) {
@@ -38,15 +47,34 @@ const db = {
     } else {
       this._data[table] = [];
     }
+    const items = this._data[table] || [];
+    this._lastIds[table] = items.length > 0 ? Math.max(...items.map(i => Number(i.id) || 0)) : 0;
   },
   _nextId(table) {
     const items = this._data[table] || [];
-    return items.length > 0 ? Math.max(...items.map(i => i.id)) + 1 : 1;
+    const fromData = items.length > 0 ? Math.max(...items.map(i => Number(i.id) || 0)) : 0;
+    const next = Math.max(fromData, this._lastIds[table] || 0) + 1;
+    this._lastIds[table] = next;
+    return next;
   },
   init() {
     for (const table of TABLES) {
       this._load(table);
     }
+    // Seal pre-existing log_acoes entries missing hash (one-time migration)
+    const logs = this._data.log_acoes || [];
+    let needsSeal = false;
+    let prev_hash = '0000000000000000000000000000000000000000000000000000000000000000';
+    for (const item of logs) {
+      if (!item.hash) {
+        const payload = [item.id, item.usuario_id || '', item.usuario_nome || '', item.acao || '', item.detalhes || '', item.criado_em || '', prev_hash].join('|');
+        item.prev_hash = prev_hash;
+        item.hash = crypto.createHash('sha256').update(payload).digest('hex');
+        needsSeal = true;
+      }
+      prev_hash = item.hash;
+    }
+    if (needsSeal) this._save('log_acoes');
     // Create default admin user
     const adminExists = this._data.usuarios?.find(u => u.login === 'admin');
     if (!adminExists) {
@@ -78,13 +106,22 @@ const db = {
   },
   insert(table, data) {
     const id = this._nextId(table);
-    const record = { id, ...data };
+    let record = { id, ...data };
+    if (table === 'log_acoes') {
+      const items = this._data[table] || [];
+      const prev = items.length > 0 ? items[items.length - 1] : null;
+      const prev_hash = prev ? (prev.hash || '') : '0000000000000000000000000000000000000000000000000000000000000000';
+      const payload = [id, record.usuario_id || '', record.usuario_nome || '', record.acao || '', record.detalhes || '', record.criado_em || '', prev_hash].join('|');
+      const hash = crypto.createHash('sha256').update(payload).digest('hex');
+      record = { ...record, prev_hash, hash };
+    }
     if (!this._data[table]) this._data[table] = [];
     this._data[table].push(record);
     this._save(table);
     return { lastInsertRowid: id };
   },
   update(table, id, data) {
+    if (table === 'log_acoes') return false;
     const idx = (this._data[table] || []).findIndex(i => i.id === Number(id));
     if (idx === -1) return false;
     this._data[table][idx] = { ...this._data[table][idx], ...data };
@@ -92,8 +129,23 @@ const db = {
     return true;
   },
   delete(table, id) {
+    if (table === 'log_acoes') return;
     this._data[table] = (this._data[table] || []).filter(i => i.id !== Number(id));
     this._save(table);
+  },
+  verifyAuditChain() {
+    const items = this._data.log_acoes || [];
+    const broken = [];
+    let prev_hash = '0000000000000000000000000000000000000000000000000000000000000000';
+    for (const item of items) {
+      const payload = [item.id, item.usuario_id || '', item.usuario_nome || '', item.acao || '', item.detalhes || '', item.criado_em || '', prev_hash].join('|');
+      const expected = crypto.createHash('sha256').update(payload).digest('hex');
+      if (expected !== item.hash) {
+        broken.push({ id: item.id, expected, actual: item.hash });
+      }
+      prev_hash = item.hash || '';
+    }
+    return { ok: broken.length === 0, broken, total: items.length };
   }
 };
 

@@ -36,6 +36,20 @@ export default function Relatorios() {
         if (inicio) params.append('data_inicio', inicio);
         if (fim) params.append('data_fim', fim);
         res = await window.api.get(`/api/relatorios/comissoes?${params}`);
+      } else if (tipoRelatorio === 'margem-lucro') {
+        const params = new URLSearchParams();
+        if (inicio) params.append('data_inicio', inicio);
+        if (fim) params.append('data_fim', fim);
+        res = await window.api.get(`/api/relatorios/margem-lucro?${params}`);
+      } else if (tipoRelatorio === 'ranking-clientes') {
+        const params = new URLSearchParams();
+        if (inicio) params.append('data_inicio', inicio);
+        if (fim) params.append('data_fim', fim);
+        res = await window.api.get(`/api/relatorios/ranking-clientes?${params}`);
+      } else if (tipoRelatorio === 'giro-estoque') {
+        res = await window.api.get(`/api/relatorios/giro-estoque?dias=30`);
+      } else if (tipoRelatorio === 'comparativo-mensal') {
+        res = await window.api.get(`/api/relatorios/comparativo-mensal`);
       }
       setData(res);
     } catch (err) {
@@ -67,6 +81,18 @@ export default function Relatorios() {
       title = 'Relatório de Comissões';
       headers = ['Vendedor', 'Comissão %', 'Qtd Vendas', 'Total Vendas', 'Comissão R$'];
       rows = data.map(v => [v.nome, `${v.comissao_pct}%`, v.qtd_vendas, formatCurrency(v.total_vendas), formatCurrency(v.comissao_valor)]);
+    } else if (tipoRelatorio === 'margem-lucro' && Array.isArray(data) && data.length) {
+      title = 'Margem de Lucro por Produto';
+      headers = ['Produto', 'Qtd', 'Receita', 'Custo', 'Lucro', 'Margem %'];
+      rows = data.map(p => [p.nome, p.qtd, formatCurrency(p.receita), formatCurrency(p.custo), formatCurrency(p.lucro), `${p.margem_pct.toFixed(1)}%`]);
+    } else if (tipoRelatorio === 'ranking-clientes' && Array.isArray(data) && data.length) {
+      title = 'Ranking de Clientes';
+      headers = ['#', 'Cliente', 'Telefone', 'Compras', 'Ticket Médio', 'Total Gasto'];
+      rows = data.map((c, i) => [i + 1, c.nome, c.telefone || '-', c.qtd_compras, formatCurrency(c.ticket_medio), formatCurrency(c.total_gasto)]);
+    } else if (tipoRelatorio === 'giro-estoque' && data.produtos) {
+      title = `Giro de Estoque — ${data.dias} dias`;
+      headers = ['Produto', 'Estoque Atual', 'Vendido', 'Média Diária', 'Dias Restantes'];
+      rows = data.produtos.map(p => [p.nome, p.estoque_atual, p.vendido_periodo, p.media_diaria, p.dias_restantes === null ? '—' : `${p.dias_restantes}`]);
     }
     const footer = data.resumo ? `Total Geral: ${formatCurrency(data.resumo.total_geral)}` : `${rows.length} registros`;
     exportPDF({ title, headers, data: rows, footer, filename: `relatorio-${tipoRelatorio}-${new Date().toISOString().split('T')[0]}.pdf` });
@@ -103,12 +129,105 @@ export default function Relatorios() {
       data.forEach(v => {
         csv += [v.nome, v.qtd_vendas, v.total].map(escapeCSV).join(',') + '\n';
       });
+    } else if (tipoRelatorio === 'margem-lucro' && Array.isArray(data)) {
+      csv = 'Produto,Qtd,Receita,Custo,Lucro,Margem %\n';
+      data.forEach(p => {
+        csv += [p.nome, p.qtd, p.receita, p.custo, p.lucro, p.margem_pct.toFixed(2)].map(escapeCSV).join(',') + '\n';
+      });
+    } else if (tipoRelatorio === 'ranking-clientes' && Array.isArray(data)) {
+      csv = 'Cliente,Telefone,Compras,Ticket Médio,Total Gasto,Última Compra\n';
+      data.forEach(c => {
+        csv += [c.nome, c.telefone || '', c.qtd_compras, c.ticket_medio.toFixed(2), c.total_gasto.toFixed(2), c.ultima_compra || ''].map(escapeCSV).join(',') + '\n';
+      });
+    } else if (tipoRelatorio === 'giro-estoque' && data.produtos) {
+      csv = 'Produto,Estoque Atual,Vendido,Média Diária,Dias Restantes\n';
+      data.produtos.forEach(p => {
+        csv += [p.nome, p.estoque_atual, p.vendido_periodo, p.media_diaria, p.dias_restantes ?? ''].map(escapeCSV).join(',') + '\n';
+      });
     }
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `relatorio-${tipoRelatorio}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const escXml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const buildReportRows = () => {
+    let title = '', headers = [], rows = [];
+    if (tipoRelatorio === 'vendas' && data?.vendas) {
+      title = 'Vendas por Período';
+      headers = ['ID', 'Data', 'Cliente', 'Vendedor', 'Pagamento', 'Total'];
+      rows = data.vendas.map(v => [v.id, new Date(v.data).toLocaleString('pt-BR'), v.cliente_nome || '-', v.usuario_nome, v.forma_pagamento, Number(v.total).toFixed(2)]);
+    } else if (tipoRelatorio === 'mais-vendidos' && data?.length) {
+      title = 'Mais Vendidos';
+      headers = ['Produto', 'Categoria', 'Qtd Vendida', 'Total'];
+      rows = data.map(p => [p.nome, p.categoria || '-', p.qtd_vendida, Number(p.total).toFixed(2)]);
+    } else if (tipoRelatorio === 'estoque-valor' && data?.length) {
+      title = 'Valor em Estoque';
+      headers = ['Produto', 'Categoria', 'Qtd Total', 'Valor Venda', 'Valor Custo'];
+      rows = data.map(p => [p.nome, p.categoria || '-', p.qtd_total, Number(p.valor_venda).toFixed(2), Number(p.valor_custo).toFixed(2)]);
+    } else if (tipoRelatorio === 'por-vendedor' && data?.length) {
+      title = 'Vendas por Vendedor';
+      headers = ['Vendedor', 'Qtd Vendas', 'Total'];
+      rows = data.map(v => [v.nome, v.qtd_vendas, Number(v.total).toFixed(2)]);
+    } else if (tipoRelatorio === 'comissoes' && data?.length) {
+      title = 'Comissões por Vendedor';
+      headers = ['Vendedor', 'Comissão %', 'Qtd Vendas', 'Total Vendas', 'Comissão R$'];
+      rows = data.map(v => [v.nome, v.comissao_pct, v.qtd_vendas, Number(v.total_vendas).toFixed(2), Number(v.comissao_valor).toFixed(2)]);
+    } else if (tipoRelatorio === 'margem-lucro' && Array.isArray(data)) {
+      title = 'Margem de Lucro';
+      headers = ['Produto', 'Qtd', 'Receita', 'Custo', 'Lucro', 'Margem %'];
+      rows = data.map(p => [p.nome, p.qtd, Number(p.receita).toFixed(2), Number(p.custo).toFixed(2), Number(p.lucro).toFixed(2), Number(p.margem_pct).toFixed(2)]);
+    } else if (tipoRelatorio === 'ranking-clientes' && Array.isArray(data)) {
+      title = 'Ranking de Clientes';
+      headers = ['Cliente', 'Telefone', 'Compras', 'Ticket Médio', 'Total Gasto', 'Última Compra'];
+      rows = data.map(c => [c.nome, c.telefone || '', c.qtd_compras, Number(c.ticket_medio).toFixed(2), Number(c.total_gasto).toFixed(2), c.ultima_compra || '']);
+    } else if (tipoRelatorio === 'giro-estoque' && data?.produtos) {
+      title = `Giro de Estoque (${data.dias} dias)`;
+      headers = ['Produto', 'Estoque Atual', 'Vendido', 'Média Diária', 'Dias Restantes'];
+      rows = data.produtos.map(p => [p.nome, p.estoque_atual, p.vendido_periodo, p.media_diaria, p.dias_restantes ?? '']);
+    } else if (tipoRelatorio === 'comparativo-mensal' && Array.isArray(data)) {
+      title = 'Comparativo Mensal';
+      headers = ['Mês', 'Qtd Vendas', 'Receita', 'Ticket Médio'];
+      rows = data.map(m => [m.mes, m.qtd_vendas, Number(m.receita).toFixed(2), Number(m.ticket_medio).toFixed(2)]);
+    }
+    return { title, headers, rows };
+  };
+
+  const exportXLSX = () => {
+    if (!data) return;
+    const { title, headers, rows } = buildReportRows();
+    if (!headers.length) return;
+    const isNum = (v) => typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v));
+    const cells = (arr) => arr.map(c => {
+      if (isNum(c)) return `<Cell><Data ss:Type="Number">${escXml(c)}</Data></Cell>`;
+      return `<Cell><Data ss:Type="String">${escXml(c)}</Data></Cell>`;
+    }).join('');
+    const headerRow = `<Row>${headers.map(h => `<Cell ss:StyleID="sH"><Data ss:Type="String">${escXml(h)}</Data></Cell>`).join('')}</Row>`;
+    const body = rows.map(r => `<Row>${cells(r)}</Row>`).join('');
+    const xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="sH"><Font ss:Bold="1"/><Interior ss:Color="#D9E1F2" ss:Pattern="Solid"/></Style>
+ </Styles>
+ <Worksheet ss:Name="${escXml(title || 'Relatorio')}">
+  <Table>
+   ${headerRow}
+   ${body}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+    const blob = new Blob(['\ufeff', xml], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-${tipoRelatorio}-${new Date().toISOString().split('T')[0]}.xls`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -127,6 +246,10 @@ export default function Relatorios() {
               <option value="estoque-valor">Valor em Estoque</option>
               <option value="por-vendedor">Vendas por Vendedor</option>
               <option value="comissoes">Comissões por Vendedor</option>
+              <option value="margem-lucro">Margem de Lucro por Produto</option>
+              <option value="ranking-clientes">Ranking de Clientes</option>
+              <option value="giro-estoque">Giro de Estoque (30 dias)</option>
+              <option value="comparativo-mensal">Comparativo Mensal</option>
             </select>
           </div>
           <div className="form-group">
@@ -145,6 +268,7 @@ export default function Relatorios() {
           {data && (
             <>
               <button className="btn-secondary" onClick={exportCSV}>Exportar CSV</button>
+              <button className="btn-secondary" onClick={exportXLSX}>Exportar Excel</button>
               <button className="btn-secondary" onClick={exportToPDF}>Exportar PDF</button>
             </>
           )}
@@ -265,8 +389,107 @@ export default function Relatorios() {
             </>
           )}
 
-          {((tipoRelatorio === 'mais-vendidos' || tipoRelatorio === 'estoque-valor' || tipoRelatorio === 'por-vendedor' || tipoRelatorio === 'comissoes') && Array.isArray(data) && data.length === 0) && (
+          {/* Margem de Lucro */}
+          {tipoRelatorio === 'margem-lucro' && Array.isArray(data) && data.length > 0 && (
+            <>
+              <h3 style={{ marginBottom: 16 }}>Margem de Lucro por Produto</h3>
+              <table>
+                <thead><tr><th>Produto</th><th>Qtd</th><th>Receita</th><th>Custo</th><th>Lucro</th><th>Margem %</th></tr></thead>
+                <tbody>
+                  {data.map(p => (
+                    <tr key={p.produto_id}>
+                      <td>{p.nome}</td>
+                      <td>{p.qtd}</td>
+                      <td>{formatCurrency(p.receita)}</td>
+                      <td>{formatCurrency(p.custo)}</td>
+                      <td style={{ fontWeight: 600, color: p.lucro >= 0 ? 'var(--success)' : 'var(--danger)' }}>{formatCurrency(p.lucro)}</td>
+                      <td>{p.margem_pct.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 12, textAlign: 'right', fontWeight: 700 }}>
+                Lucro Total: {formatCurrency(data.reduce((s, p) => s + p.lucro, 0))}
+              </div>
+            </>
+          )}
+
+          {/* Ranking Clientes */}
+          {tipoRelatorio === 'ranking-clientes' && Array.isArray(data) && data.length > 0 && (
+            <>
+              <h3 style={{ marginBottom: 16 }}>Ranking de Clientes</h3>
+              <table>
+                <thead><tr><th>#</th><th>Cliente</th><th>Telefone</th><th>Compras</th><th>Ticket Médio</th><th>Total Gasto</th><th>Última Compra</th></tr></thead>
+                <tbody>
+                  {data.map((c, i) => (
+                    <tr key={c.cliente_id}>
+                      <td>{i + 1}</td>
+                      <td><strong>{c.nome}</strong></td>
+                      <td>{c.telefone || '-'}</td>
+                      <td>{c.qtd_compras}</td>
+                      <td>{formatCurrency(c.ticket_medio)}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--accent)' }}>{formatCurrency(c.total_gasto)}</td>
+                      <td style={{ fontSize: 12 }}>{c.ultima_compra ? new Date(c.ultima_compra).toLocaleDateString('pt-BR') : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {/* Giro de Estoque */}
+          {tipoRelatorio === 'giro-estoque' && data.produtos && data.produtos.length > 0 && (
+            <>
+              <h3 style={{ marginBottom: 16 }}>Giro de Estoque — últimos {data.dias} dias</h3>
+              <table>
+                <thead><tr><th>Produto</th><th>Estoque Atual</th><th>Vendido</th><th>Média Diária</th><th>Dias Restantes</th></tr></thead>
+                <tbody>
+                  {data.produtos.map(p => (
+                    <tr key={p.produto_id}>
+                      <td>{p.nome}</td>
+                      <td>{p.estoque_atual}</td>
+                      <td>{p.vendido_periodo}</td>
+                      <td>{p.media_diaria}</td>
+                      <td style={{ color: p.dias_restantes !== null && p.dias_restantes < 7 ? 'var(--danger)' : 'inherit', fontWeight: p.dias_restantes !== null && p.dias_restantes < 7 ? 600 : 400 }}>
+                        {p.dias_restantes === null ? '—' : `${p.dias_restantes} dias`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {/* Comparativo Mensal */}
+          {tipoRelatorio === 'comparativo-mensal' && data.atual && (
+            <>
+              <h3 style={{ marginBottom: 16 }}>Comparativo Mensal</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                <div className="card" style={{ background: 'var(--bg-secondary)' }}>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Mês Anterior ({data.mes_anterior})</p>
+                  <p style={{ fontSize: 26, fontWeight: 700 }}>{formatCurrency(data.anterior.total)}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{data.anterior.qtd} vendas | Ticket: {formatCurrency(data.anterior.ticket_medio)}</p>
+                </div>
+                <div className="card" style={{ background: 'var(--bg-secondary)' }}>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Mês Atual ({data.mes_atual})</p>
+                  <p style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent)' }}>{formatCurrency(data.atual.total)}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{data.atual.qtd} vendas | Ticket: {formatCurrency(data.atual.ticket_medio)}</p>
+                </div>
+                <div className="card" style={{ background: 'var(--bg-secondary)' }}>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Variação</p>
+                  <p style={{ fontSize: 32, fontWeight: 700, color: data.variacao_pct === null ? 'var(--text-secondary)' : data.variacao_pct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    {data.variacao_pct === null ? '—' : `${data.variacao_pct >= 0 ? '+' : ''}${data.variacao_pct.toFixed(1)}%`}
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+
+          {((tipoRelatorio === 'mais-vendidos' || tipoRelatorio === 'estoque-valor' || tipoRelatorio === 'por-vendedor' || tipoRelatorio === 'comissoes' || tipoRelatorio === 'margem-lucro' || tipoRelatorio === 'ranking-clientes') && Array.isArray(data) && data.length === 0) && (
             <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Sem dados para exibir</p>
+          )}
+          {tipoRelatorio === 'giro-estoque' && data.produtos && data.produtos.length === 0 && (
+            <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Sem movimentação no período</p>
           )}
           {tipoRelatorio === 'vendas' && data.vendas && data.vendas.length === 0 && (
             <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma venda no período</p>

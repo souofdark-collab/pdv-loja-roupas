@@ -11,9 +11,8 @@ const allMenuItems = [
   { path: '/promocoes', icon: '💰', label: 'Promoções', roles: ['admin', 'caixa'] },
   { path: '/despesas', icon: '💸', label: 'Despesas', roles: ['admin', 'caixa'] },
   { path: '/fechamento', icon: '🧾', label: 'Fechamento', roles: ['admin', 'caixa'] },
+  { path: '/controle-caixa', icon: '🏦', label: 'Controle de Caixa', roles: ['admin', 'caixa'] },
   { path: '/relatorios', icon: '📈', label: 'Relatórios', roles: ['admin'] },
-  { path: '/auditoria', icon: '🔍', label: 'Auditoria', roles: ['admin'] },
-  { path: '/backup', icon: '💾', label: 'Backup', roles: ['admin'] },
   { path: '/usuarios', icon: '👤', label: 'Usuários', roles: ['admin'] },
   { path: '/configuracoes', icon: '⚙️', label: 'Configurações', roles: ['admin'] },
 ];
@@ -39,16 +38,18 @@ export default function Layout({ children, user, onLogout }) {
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* Sidebar */}
       <aside style={{
         width: sidebarOpen ? 220 : 60,
+        height: '100vh',
         background: 'var(--bg-secondary)',
         borderRight: `1px solid var(--border)`,
         transition: 'width 0.3s',
         display: 'flex',
         flexDirection: 'column',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        flexShrink: 0
       }}>
         <div style={{
           padding: 16,

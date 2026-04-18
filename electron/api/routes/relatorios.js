@@ -27,9 +27,11 @@ module.exports = (db) => {
   const router = express.Router();
 
   router.get('/relatorios/dashboard', (req, res) => {
-    const vendas = db.select('vendas');
+    // Ignore cancelled/returned sales from dashboard figures — they aren't revenue.
+    const vendasAll = db.select('vendas').filter(v => v && v.data && v.status !== 'cancelada' && v.status !== 'devolvida');
     const produtos = db.select('produtos');
     const estoque = db.select('estoque');
+    const vendas = vendasAll;
 
     // Vendas do dia
     const vendasHoje = vendas.filter(v => isToday(v.data));
@@ -81,7 +83,7 @@ module.exports = (db) => {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const diaStr = d.toISOString().split('T')[0];
-      const diaVendasCorretas = vendas.filter(v => v.data.startsWith(diaStr));
+      const diaVendasCorretas = vendas.filter(v => v.data && v.data.startsWith(diaStr));
       grafico7dias.push({
         dia: diaStr,
         label: d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' }),
@@ -90,10 +92,14 @@ module.exports = (db) => {
       });
     }
 
+    const taxasHoje = vendasHoje.reduce((s, v) => s + Number(v.valor_taxa_cartao || 0), 0);
+    const taxasSemana = vendasSemana.reduce((s, v) => s + Number(v.valor_taxa_cartao || 0), 0);
+    const taxasMes = vendasMes.reduce((s, v) => s + Number(v.valor_taxa_cartao || 0), 0);
+
     res.json({
-      vendas_hoje: { qtd: vendasHoje.length, valor: vendasHoje.reduce((s, v) => s + v.total, 0) },
-      vendas_semana: { qtd: vendasSemana.length, valor: vendasSemana.reduce((s, v) => s + v.total, 0) },
-      vendas_mes: { qtd: vendasMes.length, valor: vendasMes.reduce((s, v) => s + v.total, 0) },
+      vendas_hoje: { qtd: vendasHoje.length, valor: vendasHoje.reduce((s, v) => s + v.total, 0), taxas: taxasHoje },
+      vendas_semana: { qtd: vendasSemana.length, valor: vendasSemana.reduce((s, v) => s + v.total, 0), taxas: taxasSemana },
+      vendas_mes: { qtd: vendasMes.length, valor: vendasMes.reduce((s, v) => s + v.total, 0), taxas: taxasMes },
       por_pagamento: Object.values(porPag),
       top_produtos: topProdFinal,
       estoque_baixo: estoqueBaixo,
@@ -230,9 +236,10 @@ module.exports = (db) => {
 
     const totalVendas = vendas.reduce((s, v) => s + Number(v.total), 0);
     const totalDespesas = despesas.reduce((s, d) => s + Number(d.valor), 0);
+    const totalTaxasCartao = vendas.reduce((s, v) => s + Number(v.valor_taxa_cartao || 0), 0);
     const dinheiroEmCaixa = (porPagamento.find(p => p.nome.toLowerCase().includes('dinheiro')) || {}).total || 0;
     const ticketMedio = vendas.length > 0 ? totalVendas / vendas.length : 0;
-    const liquidoFinal = totalVendas - totalDespesas - totalDevolucoes;
+    const liquidoFinal = totalVendas - totalDespesas - totalDevolucoes - totalTaxasCartao;
 
     const porUsuario = {};
     vendas.forEach(v => {
@@ -253,6 +260,7 @@ module.exports = (db) => {
       total_vendas: totalVendas,
       total_despesas: totalDespesas,
       total_devolucoes: totalDevolucoes,
+      total_taxas_cartao: totalTaxasCartao,
       devolucoes_qtd: devolucoesPeriodo.length,
       liquido: liquidoFinal,
       dinheiro_em_caixa: dinheiroEmCaixa,
@@ -285,7 +293,10 @@ module.exports = (db) => {
     const resultado = usuarios
       .filter(u => u.ativo && u.comissao > 0)
       .map(u => {
-        const vendasVendedor = vendas.filter(v => v.usuario_id === u.id || v.vendedor_id === u.id);
+        const vendasVendedor = vendas.filter(v => {
+          if (v.vendedor_id != null && v.vendedor_id !== '') return Number(v.vendedor_id) === u.id;
+          return v.usuario_id === u.id;
+        });
         const totalVendas = vendasVendedor.reduce((s, v) => s + Number(v.total), 0);
         const comissaoValor = totalVendas * (Number(u.comissao) / 100);
         return {
@@ -302,6 +313,132 @@ module.exports = (db) => {
       .sort((a, b) => b.comissao_valor - a.comissao_valor);
 
     res.json(resultado);
+  });
+
+  // Margem de lucro por produto (período)
+  router.get('/relatorios/margem-lucro', (req, res) => {
+    const { data_inicio, data_fim } = req.query;
+    const inRange = (iso) => {
+      if (!iso) return false;
+      const d = iso.split('T')[0];
+      return (!data_inicio || d >= data_inicio) && (!data_fim || d <= data_fim);
+    };
+    const produtos = db.select('produtos');
+    const vendas = db.select('vendas').filter(v => v.status !== 'cancelada' && inRange(v.data));
+    const vendaIds = new Set(vendas.map(v => v.id));
+    const itens = db.select('venda_itens').filter(i => vendaIds.has(i.venda_id));
+
+    const porProduto = {};
+    itens.forEach(i => {
+      const p = produtos.find(p => p.id === i.produto_id);
+      if (!p) return;
+      if (!porProduto[i.produto_id]) {
+        porProduto[i.produto_id] = {
+          produto_id: i.produto_id,
+          nome: p.nome,
+          qtd: 0, receita: 0, custo: 0
+        };
+      }
+      const row = porProduto[i.produto_id];
+      row.qtd += Number(i.quantidade) || 0;
+      row.receita += (Number(i.preco_unitario) || 0) * (Number(i.quantidade) || 0);
+      row.custo += (Number(p.preco_custo) || 0) * (Number(i.quantidade) || 0);
+    });
+    const result = Object.values(porProduto).map(r => {
+      const lucro = r.receita - r.custo;
+      const margem_pct = r.receita > 0 ? (lucro / r.receita) * 100 : 0;
+      return { ...r, lucro, margem_pct };
+    }).sort((a, b) => b.lucro - a.lucro);
+    res.json(result);
+  });
+
+  // Ranking de clientes por valor comprado
+  router.get('/relatorios/ranking-clientes', (req, res) => {
+    const { data_inicio, data_fim } = req.query;
+    const inRange = (iso) => {
+      if (!iso) return false;
+      const d = iso.split('T')[0];
+      return (!data_inicio || d >= data_inicio) && (!data_fim || d <= data_fim);
+    };
+    const clientes = db.select('clientes');
+    const vendas = db.select('vendas').filter(v => v.status !== 'cancelada' && v.cliente_id && inRange(v.data));
+
+    const porCliente = {};
+    vendas.forEach(v => {
+      if (!porCliente[v.cliente_id]) {
+        const c = clientes.find(cl => cl.id === v.cliente_id);
+        porCliente[v.cliente_id] = {
+          cliente_id: v.cliente_id,
+          nome: c ? c.nome : 'Cliente removido',
+          telefone: c ? c.telefone : '',
+          qtd_compras: 0,
+          total_gasto: 0,
+          ultima_compra: null
+        };
+      }
+      const row = porCliente[v.cliente_id];
+      row.qtd_compras++;
+      row.total_gasto += Number(v.total) || 0;
+      if (!row.ultima_compra || v.data > row.ultima_compra) row.ultima_compra = v.data;
+    });
+    const result = Object.values(porCliente)
+      .map(r => ({ ...r, ticket_medio: r.qtd_compras > 0 ? r.total_gasto / r.qtd_compras : 0 }))
+      .sort((a, b) => b.total_gasto - a.total_gasto);
+    res.json(result);
+  });
+
+  // Giro de estoque (vendas vs estoque atual)
+  router.get('/relatorios/giro-estoque', (req, res) => {
+    const dias = Math.max(1, Number(req.query.dias) || 30);
+    const limite = new Date(Date.now() - dias * 24 * 60 * 60 * 1000).toISOString();
+    const produtos = db.select('produtos').filter(p => p.ativo);
+    const estoque = db.select('estoque');
+    const vendas = db.select('vendas').filter(v => v.status !== 'cancelada' && v.data && v.data >= limite);
+    const vendaIds = new Set(vendas.map(v => v.id));
+    const itens = db.select('venda_itens').filter(i => vendaIds.has(i.venda_id));
+
+    const vendidoPorProduto = {};
+    itens.forEach(i => {
+      vendidoPorProduto[i.produto_id] = (vendidoPorProduto[i.produto_id] || 0) + (Number(i.quantidade) || 0);
+    });
+
+    const result = produtos.map(p => {
+      const estAtual = estoque.filter(e => e.produto_id === p.id).reduce((s, e) => s + (Number(e.quantidade) || 0), 0);
+      const vendido = vendidoPorProduto[p.id] || 0;
+      const media_diaria = vendido / dias;
+      const dias_restantes = media_diaria > 0 ? estAtual / media_diaria : null;
+      return {
+        produto_id: p.id,
+        nome: p.nome,
+        estoque_atual: estAtual,
+        vendido_periodo: vendido,
+        media_diaria: Number(media_diaria.toFixed(2)),
+        dias_restantes: dias_restantes === null ? null : Math.round(dias_restantes)
+      };
+    }).filter(r => r.vendido_periodo > 0 || r.estoque_atual > 0)
+      .sort((a, b) => b.vendido_periodo - a.vendido_periodo);
+    res.json({ dias, produtos: result });
+  });
+
+  // Comparativo mês atual vs mês anterior
+  router.get('/relatorios/comparativo-mensal', (req, res) => {
+    const hoje = new Date();
+    const anoAtual = hoje.getFullYear();
+    const mesAtual = hoje.getMonth();
+    const mesAnt = new Date(anoAtual, mesAtual - 1, 1);
+    const prefAtual = `${anoAtual}-${String(mesAtual + 1).padStart(2, '0')}`;
+    const prefAnt = `${mesAnt.getFullYear()}-${String(mesAnt.getMonth() + 1).padStart(2, '0')}`;
+
+    const vendas = db.select('vendas').filter(v => v.status !== 'cancelada' && v.data);
+    const agrega = (pref) => {
+      const v = vendas.filter(x => x.data.startsWith(pref));
+      const total = v.reduce((s, x) => s + (Number(x.total) || 0), 0);
+      return { qtd: v.length, total, ticket_medio: v.length ? total / v.length : 0 };
+    };
+    const atual = agrega(prefAtual);
+    const anterior = agrega(prefAnt);
+    const variacao_pct = anterior.total > 0 ? ((atual.total - anterior.total) / anterior.total) * 100 : null;
+    res.json({ mes_atual: prefAtual, mes_anterior: prefAnt, atual, anterior, variacao_pct });
   });
 
   // Alertas de estoque mínimo

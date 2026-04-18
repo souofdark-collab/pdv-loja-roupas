@@ -64,7 +64,8 @@ export default function ControleCaixa() {
 
   // ── Receita x Despesas ─────────────────────────────────────────
   const totalDespesas = despesas.reduce((s, d) => s + Number(d.valor || 0), 0);
-  const saldoCaixa = receitaRealizada - totalDespesas;
+  const totalTaxasCartao = vendasFinalizadas.reduce((s, v) => s + Number(v.valor_taxa_cartao || 0), 0);
+  const saldoCaixa = receitaRealizada - totalDespesas - totalTaxasCartao;
 
   // Agrupar despesas por categoria para tabela
   const despesasPorCat = {};
@@ -288,25 +289,32 @@ export default function ControleCaixa() {
       {/* ── TAB 3: Receita x Despesas ── */}
       {tab === 'receita_despesas' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 24 }}>
             <div className="card" style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Receita Realizada</div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--success)' }}>{fmt(receitaRealizada)}</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--success)' }}>{fmt(receitaRealizada)}</div>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{vendasFinalizadas.length} vendas finalizadas</div>
             </div>
             <div className="card" style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Total de Despesas</div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--danger)' }}>{fmt(totalDespesas)}</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--danger)' }}>{fmt(totalDespesas)}</div>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{despesas.length} despesa(s) registrada(s)</div>
             </div>
             <div className="card" style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Taxas de Cartão</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--warning)' }}>{fmt(totalTaxasCartao)}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                {receitaRealizada > 0 ? `${pct((totalTaxasCartao / receitaRealizada) * 100)} da receita` : 'Sobre cartão'}
+              </div>
+            </div>
+            <div className="card" style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Saldo do Caixa</div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: saldoCaixa >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(saldoCaixa)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Receita − Despesas</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: saldoCaixa >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmt(saldoCaixa)}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Receita − Despesas − Taxas</div>
             </div>
             <div className="card" style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Margem Líquida</div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: saldoCaixa >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: saldoCaixa >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                 {receitaRealizada > 0 ? pct((saldoCaixa / receitaRealizada) * 100) : '—'}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Sobre a receita total</div>
@@ -318,12 +326,14 @@ export default function ControleCaixa() {
             <div className="card" style={{ marginBottom: 16 }}>
               <h3 style={{ marginBottom: 12 }}>Distribuição do Caixa</h3>
               <div style={{ marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
                   <span style={{ color: 'var(--danger)' }}>Despesas {pct((totalDespesas / receitaRealizada) * 100)}</span>
+                  <span style={{ color: 'var(--warning)' }}>Taxas Cartão {pct((totalTaxasCartao / receitaRealizada) * 100)}</span>
                   <span style={{ color: 'var(--success)' }}>Saldo {pct(Math.max(0, (saldoCaixa / receitaRealizada) * 100))}</span>
                 </div>
                 <div style={{ height: 20, background: 'var(--border)', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
                   <div style={{ width: `${Math.min(100, (totalDespesas / receitaRealizada) * 100)}%`, background: 'var(--danger)', transition: 'width 0.4s' }} />
+                  <div style={{ width: `${Math.min(100, (totalTaxasCartao / receitaRealizada) * 100)}%`, background: 'var(--warning)', transition: 'width 0.4s' }} />
                   <div style={{ flex: 1, background: 'var(--success)', opacity: 0.7 }} />
                 </div>
               </div>
@@ -388,6 +398,10 @@ export default function ControleCaixa() {
                   <tr>
                     <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--border)', color: 'var(--danger)' }}>( − ) Total de Despesas</td>
                     <td style={{ textAlign: 'right', color: 'var(--danger)', padding: '10px 8px', borderBottom: '1px solid var(--border)' }}>{fmt(totalDespesas)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--border)', color: 'var(--warning)' }}>( − ) Taxas de Cartão</td>
+                    <td style={{ textAlign: 'right', color: 'var(--warning)', padding: '10px 8px', borderBottom: '1px solid var(--border)' }}>{fmt(totalTaxasCartao)}</td>
                   </tr>
                   <tr style={{ fontWeight: 700, fontSize: 15 }}>
                     <td style={{ padding: '12px 8px' }}>Saldo Líquido do Caixa</td>

@@ -1,5 +1,11 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+
+const hashPayload = (data) => {
+  const json = JSON.stringify(data);
+  return crypto.createHash('sha256').update(json).digest('hex');
+};
 
 const ALL_TABLES = [
   'usuarios', 'clientes', 'categorias', 'produtos',
@@ -27,20 +33,26 @@ module.exports = (db) => {
     for (const table of ALL_TABLES) {
       data[table] = db._data[table] || [];
     }
-    res.json({ version: '2.0', exportDate: new Date().toISOString(), data });
+    res.json({ version: '2.1', exportDate: new Date().toISOString(), data, integrity: hashPayload(data) });
   });
 
   // Direct restore endpoint — bypasses individual route validators (e.g. bcrypt on usuarios)
   router.post('/backup/restore', (req, res) => {
-    const { data } = req.body;
+    const { data, integrity } = req.body;
     if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Dados inválidos.' });
+    if (integrity) {
+      const expected = hashPayload(data);
+      if (integrity !== expected) {
+        return res.status(400).json({ error: 'Integridade do backup falhou. Arquivo corrompido ou modificado.' });
+      }
+    }
     try {
       for (const table of ALL_TABLES) {
         if (!data[table] || !Array.isArray(data[table])) continue;
         db._data[table] = data[table];
         db._save(table);
       }
-      res.json({ success: true });
+      res.json({ success: true, integrity_verified: !!integrity });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

@@ -29,22 +29,22 @@ export default function Dashboard({ onOpenModal }) {
         <div className="card" style={{ cursor: 'pointer', textAlign: 'center', padding: '20px 16px' }} onClick={() => onOpenModal('vendas-hoje')}>
           <p style={{ fontSize: 24, marginBottom: 4 }}>📋</p>
           <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Vendas Hoje</p>
-          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 0 }}>F2</p>
+          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 0 }}>F6</p>
         </div>
         <div className="card" style={{ cursor: 'pointer', textAlign: 'center', padding: '20px 16px' }} onClick={() => onOpenModal('vendas-semana')}>
           <p style={{ fontSize: 24, marginBottom: 4 }}>📊</p>
           <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Vendas na Semana</p>
-          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 0 }}>F3</p>
+          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 0 }}>F7</p>
         </div>
         <div className="card" style={{ cursor: 'pointer', textAlign: 'center', padding: '20px 16px' }} onClick={() => onOpenModal('vendas-mes')}>
           <p style={{ fontSize: 24, marginBottom: 4 }}>📅</p>
           <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Vendas no Mês</p>
-          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 0 }}>F4</p>
+          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 0 }}>F8</p>
         </div>
         <div className="card" style={{ cursor: 'pointer', textAlign: 'center', padding: '20px 16px' }} onClick={() => onOpenModal('vendas-geral')}>
           <p style={{ fontSize: 24, marginBottom: 4 }}>📜</p>
           <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Histórico de Vendas</p>
-          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 0 }}>F5</p>
+          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 0 }}>F9</p>
         </div>
       </div>
 
