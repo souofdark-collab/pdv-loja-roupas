@@ -14,6 +14,8 @@ export default function Despesas({ user }) {
   const [form, setForm] = useState({ descricao: '', valor: '', categoria_id: '', recorrencia: 'nenhuma', vencimento: '' });
   const [catForm, setCatForm] = useState({ nome: '', descricao: '' });
   const [editingCatId, setEditingCatId] = useState(null);
+  const [modal, setModal] = useState(null);
+  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
   const [filterMes, setFilterMes] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -58,10 +60,10 @@ export default function Despesas({ user }) {
   };
 
   const handleDelete = async (id) => {
-    if (confirm('Excluir esta despesa?')) {
+    askConfirm('Excluir esta despesa?', async () => {
       await window.api.delete(`/api/despesas/${id}`);
       loadData();
-    }
+    });
   };
 
   const handleCatSubmit = async (e) => {
@@ -78,10 +80,10 @@ export default function Despesas({ user }) {
   };
 
   const handleCatDelete = async (id) => {
-    if (confirm('Excluir esta categoria?')) {
+    askConfirm('Excluir esta categoria?', async () => {
       await window.api.delete(`/api/despesas-categorias/${id}`);
       loadData();
-    }
+    });
   };
 
   // Filter by month
@@ -223,27 +225,41 @@ export default function Despesas({ user }) {
 
       {/* Expense list */}
       <div className="card">
-        <table>
-          <thead><tr><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Recorrência</th><th>Vencimento</th><th>Data</th><th>Ações</th></tr></thead>
-          <tbody>
-            {filtered.map(d => (
-              <tr key={d.id}>
-                <td>{d.descricao}</td>
-                <td>{d.categoria_nome || '-'}</td>
-                <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{formatCurrency(d.valor)}</td>
-                <td>{recorrenciaLabel(d.recorrencia)}</td>
-                <td>{d.vencimento ? new Date(d.vencimento + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}</td>
-                <td>{new Date(d.data + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
-                <td style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(d)}>Editar</button>
-                  <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(d.id)}>Excluir</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma despesa neste mês</p>}
+        <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+          <table>
+            <thead><tr><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Recorrência</th><th>Vencimento</th><th>Data</th><th>Ações</th></tr></thead>
+            <tbody>
+              {filtered.map(d => (
+                <tr key={d.id}>
+                  <td>{d.descricao}</td>
+                  <td>{d.categoria_nome || '-'}</td>
+                  <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{formatCurrency(d.valor)}</td>
+                  <td>{recorrenciaLabel(d.recorrencia)}</td>
+                  <td>{d.vencimento ? new Date(d.vencimento + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                  <td>{new Date(d.data + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(d)}>Editar</button>
+                    <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(d.id)}>Excluir</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma despesa neste mês</p>}
+        </div>
       </div>
+
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

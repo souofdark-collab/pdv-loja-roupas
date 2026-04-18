@@ -10,6 +10,8 @@ export default function Promocoes() {
     nome: '', tipo: 'percentual', valor: '', inicio: '', fim: '', aplicavel_a: 'tudo', ativa: 1
   });
   const [regras, setRegras] = useState([]);
+  const [modal, setModal] = useState(null);
+  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
 
   useEffect(() => {
     loadData();
@@ -83,10 +85,10 @@ export default function Promocoes() {
   };
 
   const handleDelete = async (id) => {
-    if (confirm('Excluir esta promoção?')) {
+    askConfirm('Excluir esta promoção?', async () => {
       await window.api.delete(`/api/promocoes/${id}`);
       loadData();
-    }
+    });
   };
 
   const formatCurrency = (v) => `R$ ${Number(v).toFixed(2)}`;
@@ -177,36 +179,50 @@ export default function Promocoes() {
       )}
 
       <div className="card">
-        <table>
-          <thead>
-            <tr><th>Nome</th><th>Tipo</th><th>Valor</th><th>Início</th><th>Fim</th><th>Aplicável</th><th>Status</th><th>Ações</th></tr>
-          </thead>
-          <tbody>
-            {promocoes.map(p => (
-              <tr key={p.id}>
-                <td>{p.nome}</td>
-                <td>{p.tipo === 'percentual' ? '%' : 'R$'}</td>
-                <td>{p.tipo === 'percentual' ? `${p.valor}%` : formatCurrency(p.valor)}</td>
-                <td>{p.inicio ? new Date(p.inicio).toLocaleDateString('pt-BR') : '-'}</td>
-                <td>{p.fim ? new Date(p.fim).toLocaleDateString('pt-BR') : '-'}</td>
-                <td>{p.aplicavel_a}</td>
-                <td>
-                  {p.ativa ? <span className="badge badge-success">Ativa</span> : <span className="badge badge-danger">Inativa</span>}
-                </td>
-                <td style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(p)}>
-                    Editar
-                  </button>
-                  <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(p.id)}>
-                    Excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {promocoes.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma promoção cadastrada</p>}
+        <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+          <table>
+            <thead>
+              <tr><th>Nome</th><th>Tipo</th><th>Valor</th><th>Início</th><th>Fim</th><th>Aplicável</th><th>Status</th><th>Ações</th></tr>
+            </thead>
+            <tbody>
+              {promocoes.map(p => (
+                <tr key={p.id}>
+                  <td>{p.nome}</td>
+                  <td>{p.tipo === 'percentual' ? '%' : 'R$'}</td>
+                  <td>{p.tipo === 'percentual' ? `${p.valor}%` : formatCurrency(p.valor)}</td>
+                  <td>{p.inicio ? new Date(p.inicio).toLocaleDateString('pt-BR') : '-'}</td>
+                  <td>{p.fim ? new Date(p.fim).toLocaleDateString('pt-BR') : '-'}</td>
+                  <td>{p.aplicavel_a}</td>
+                  <td>
+                    {p.ativa ? <span className="badge badge-success">Ativa</span> : <span className="badge badge-danger">Inativa</span>}
+                  </td>
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(p)}>
+                      Editar
+                    </button>
+                    <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(p.id)}>
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {promocoes.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma promoção cadastrada</p>}
+        </div>
       </div>
+
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,8 @@ export default function Categorias() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ nome: '', descricao: '' });
+  const [modal, setModal] = useState(null);
+  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
 
   useEffect(() => {
     loadData();
@@ -39,10 +41,10 @@ export default function Categorias() {
   };
 
   const handleDelete = async (id) => {
-    if (confirm('Excluir esta categoria?')) {
+    askConfirm('Excluir esta categoria?', async () => {
       await window.api.delete(`/api/categorias/${id}`);
       loadData();
-    }
+    });
   };
 
   return (
@@ -74,27 +76,41 @@ export default function Categorias() {
       )}
 
       <div className="card">
-        <table>
-          <thead><tr><th>Nome</th><th>Descrição</th><th>Ações</th></tr></thead>
-          <tbody>
-            {categorias.map(c => (
-              <tr key={c.id}>
-                <td>{c.nome}</td>
-                <td>{c.descricao || '-'}</td>
-                <td style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(c)}>
-                    Editar
-                  </button>
-                  <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(c.id)}>
-                    Excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {categorias.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma categoria</p>}
+        <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+          <table>
+            <thead><tr><th>Nome</th><th>Descrição</th><th>Ações</th></tr></thead>
+            <tbody>
+              {categorias.map(c => (
+                <tr key={c.id}>
+                  <td>{c.nome}</td>
+                  <td>{c.descricao || '-'}</td>
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(c)}>
+                      Editar
+                    </button>
+                    <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(c.id)}>
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {categorias.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma categoria</p>}
+        </div>
       </div>
+
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

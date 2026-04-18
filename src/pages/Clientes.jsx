@@ -11,6 +11,9 @@ export default function Clientes({ user }) {
   const [historico, setHistorico] = useState([]);
   const [showHistorico, setShowHistorico] = useState(false);
   const isVendedor = user && user.cargo === 'vendedor';
+  const [modal, setModal] = useState(null);
+  const showAlert = (msg) => { document.activeElement?.blur(); setModal({ msg }); };
+  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
 
   useEffect(() => {
     loadData();
@@ -23,7 +26,7 @@ export default function Clientes({ user }) {
   const handleOpenForm = (cliente = null) => {
     if (cliente) {
       if (isVendedor && cliente.criado_por_usuario_id !== user.id) {
-        alert('Você só pode editar clientes criados por você.');
+        showAlert('Você só pode editar clientes criados por você.');
         return;
       }
       setEditingId(cliente.id);
@@ -81,13 +84,13 @@ export default function Clientes({ user }) {
 
   const handleDelete = async (id) => {
     if (isVendedor) {
-      alert('Vendedores não podem excluir clientes.');
+      showAlert('Vendedores não podem excluir clientes.');
       return;
     }
-    if (confirm('Excluir este cliente?')) {
+    askConfirm('Excluir este cliente?', async () => {
       await window.api.delete(`/api/clientes/${id}`);
       loadData();
-    }
+    });
   };
 
   const handleVerHistorico = async (cliente) => {
@@ -184,37 +187,53 @@ export default function Clientes({ user }) {
           onChange={e => setSearch(e.target.value)}
           style={{ marginBottom: 16 }}
         />
-        <table>
-          <thead><tr><th>Nome</th><th>CPF</th><th>Telefone</th><th>Email</th><th>Endereço</th><th>Ações</th></tr></thead>
-          <tbody>
-            {filtered.map(c => (
-              <tr key={c.id}>
-                <td>{c.nome}</td>
-                <td>{c.cpf || '-'}</td>
-                <td>{c.telefone || '-'}</td>
-                <td>{c.email || '-'}</td>
-                <td>{c.endereco || '-'}</td>
-                <td style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleVerHistorico(c)}>
-                    Ver Compras
-                  </button>
-                  {(!isVendedor || c.criado_por_usuario_id === user.id) && (
-                    <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(c)}>
-                      Editar
+        <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+          <table>
+            <thead><tr><th>Nome</th><th>CPF</th><th>Telefone</th><th>Email</th><th>Endereço</th><th>Ações</th></tr></thead>
+            <tbody>
+              {filtered.map(c => (
+                <tr key={c.id}>
+                  <td>{c.nome}</td>
+                  <td>{c.cpf || '-'}</td>
+                  <td>{c.telefone || '-'}</td>
+                  <td>{c.email || '-'}</td>
+                  <td>{c.endereco || '-'}</td>
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleVerHistorico(c)}>
+                      Ver Compras
                     </button>
-                  )}
-                  {!isVendedor && (
-                    <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(c.id)}>
-                      Excluir
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhum cliente encontrado</p>}
+                    {(!isVendedor || c.criado_por_usuario_id === user.id) && (
+                      <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(c)}>
+                        Editar
+                      </button>
+                    )}
+                    {!isVendedor && (
+                      <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(c.id)}>
+                        Excluir
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhum cliente encontrado</p>}
+        </div>
       </div>
+
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
+            {modal.onConfirm ? (
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+                <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+              </div>
+            ) : <button className="btn-primary" onClick={() => setModal(null)}>OK</button>}
+          </div>
+        </div>
+      )}
 
       {/* Historico de Compras Modal */}
       {showHistorico && selectedCliente && (

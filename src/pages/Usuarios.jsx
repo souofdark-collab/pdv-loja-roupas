@@ -5,6 +5,8 @@ export default function Usuarios({ user }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ nome: '', login: '', senha: '', cargo: 'caixa', comissao: 0 });
+  const [modal, setModal] = useState(null);
+  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
 
   useEffect(() => {
     loadData();
@@ -41,10 +43,10 @@ export default function Usuarios({ user }) {
   };
 
   const handleDelete = async (id) => {
-    if (confirm('Desativar este usuário?')) {
+    askConfirm('Desativar este usuário?', async () => {
       await window.api.delete(`/api/usuarios/${id}`);
       loadData();
-    }
+    });
   };
 
   return (
@@ -104,38 +106,52 @@ export default function Usuarios({ user }) {
       )}
 
       <div className="card">
-        <table>
-          <thead><tr><th>Nome</th><th>Login</th><th>Cargo</th><th>Comissão</th><th>Status</th><th>Criado em</th><th>Ações</th></tr></thead>
-          <tbody>
-            {usuarios.map(u => (
-              <tr key={u.id}>
-                <td>{u.nome}</td>
-                <td>{u.login}</td>
-                <td>{u.cargo === 'admin' ? 'Administrador' : u.cargo === 'vendedor' ? 'Vendedor' : 'Caixa'}</td>
-                <td>{u.comissao > 0 ? `${u.comissao}%` : '-'}</td>
-                <td>
-                  {u.ativo ? <span className="badge badge-success">Ativo</span> : <span className="badge badge-danger">Inativo</span>}
-                </td>
-                <td>{new Date(u.criado_em).toLocaleDateString('pt-BR')}</td>
-                <td style={{ display: 'flex', gap: 4 }}>
-                  {user.cargo === 'admin' && (
-                    <>
-                      <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(u)}>
-                        Editar
-                      </button>
-                      {u.id !== user.id && (
-                        <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(u.id)}>
-                          Desativar
+        <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+          <table>
+            <thead><tr><th>Nome</th><th>Login</th><th>Cargo</th><th>Comissão</th><th>Status</th><th>Criado em</th><th>Ações</th></tr></thead>
+            <tbody>
+              {usuarios.map(u => (
+                <tr key={u.id}>
+                  <td>{u.nome}</td>
+                  <td>{u.login}</td>
+                  <td>{u.cargo === 'admin' ? 'Administrador' : u.cargo === 'vendedor' ? 'Vendedor' : 'Caixa'}</td>
+                  <td>{u.comissao > 0 ? `${u.comissao}%` : '-'}</td>
+                  <td>
+                    {u.ativo ? <span className="badge badge-success">Ativo</span> : <span className="badge badge-danger">Inativo</span>}
+                  </td>
+                  <td>{new Date(u.criado_em).toLocaleDateString('pt-BR')}</td>
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    {user.cargo === 'admin' && (
+                      <>
+                        <button className="btn-warning" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleOpenForm(u)}>
+                          Editar
                         </button>
-                      )}
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                        {u.id !== user.id && (
+                          <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleDelete(u.id)}>
+                            Desativar
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

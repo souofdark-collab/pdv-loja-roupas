@@ -10,6 +10,7 @@ export default function Trocas({ user }) {
     venda_id: '', produto_id: '', motivo: '', tipo: 'troca', novo_produto_id: '', observacao: ''
   });
   const [filter, setFilter] = useState('todas'); // 'todas', 'pendente', 'concluida', 'recusada'
+  const [modal, setModal] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -36,9 +37,13 @@ export default function Trocas({ user }) {
   };
 
   const handleStatus = async (id, status) => {
-    const obs = status === 'recusada' ? prompt('Motivo da recusa:') || '' : '';
-    await window.api.put(`/api/trocas/${id}`, { status, observacao: obs || undefined });
-    loadData();
+    if (status === 'recusada') {
+      document.activeElement?.blur();
+      setModal({ id, inputValue: '' });
+    } else {
+      await window.api.put(`/api/trocas/${id}`, { status });
+      loadData();
+    }
   };
 
   const formatCurrency = (v) => `R$ ${Number(v).toFixed(2)}`;
@@ -153,46 +158,73 @@ export default function Trocas({ user }) {
       </div>
 
       <div className="card">
-        <table>
-          <thead><tr><th>#</th><th>Data</th><th>Tipo</th><th>Produto</th><th>Motivo</th><th>Status</th><th>Obs.</th><th>Ações</th></tr></thead>
-          <tbody>
-            {filtered.map(t => (
-              <tr key={t.id}>
-                <td>{t.id}</td>
-                <td>{t.criado_em ? new Date(t.criado_em).toLocaleString('pt-BR') : '-'}</td>
-                <td>
-                  {t.tipo === 'troca' ? (
-                    <span className="badge" style={{ background: '#9b59b6', color: 'white' }}>Troca</span>
-                  ) : (
-                    <span className="badge badge-danger">Devolução</span>
-                  )}
-                </td>
-                <td>{(produtos.find(p => p.id === t.produto_id) || {}).nome || '-'}</td>
-                <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.motivo}</td>
-                <td>
-                  {t.status === 'pendente' && <span className="badge badge-warning">Pendente</span>}
-                  {t.status === 'concluida' && <span className="badge badge-success">Concluída</span>}
-                  {t.status === 'recusada' && <span className="badge badge-danger">Recusada</span>}
-                </td>
-                <td style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
-                  {t.observacao || '-'}
-                </td>
-                <td style={{ display: 'flex', gap: 4 }}>
-                  {t.status === 'pendente' && (
-                    <>
-                      <button className="btn-success" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleStatus(t.id, 'concluida')}>Aprovar</button>
-                      <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleStatus(t.id, 'recusada')}>Recusar</button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr><td colSpan="8" style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma troca registrada</td></tr>
-            )}
-          </tbody>
-        </table>
+        <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+          <table>
+            <thead><tr><th>#</th><th>Data</th><th>Tipo</th><th>Produto</th><th>Motivo</th><th>Status</th><th>Obs.</th><th>Ações</th></tr></thead>
+            <tbody>
+              {filtered.map(t => (
+                <tr key={t.id}>
+                  <td>{t.id}</td>
+                  <td>{t.criado_em ? new Date(t.criado_em).toLocaleString('pt-BR') : '-'}</td>
+                  <td>
+                    {t.tipo === 'troca' ? (
+                      <span className="badge" style={{ background: '#9b59b6', color: 'white' }}>Troca</span>
+                    ) : (
+                      <span className="badge badge-danger">Devolução</span>
+                    )}
+                  </td>
+                  <td>{(produtos.find(p => p.id === t.produto_id) || {}).nome || '-'}</td>
+                  <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.motivo}</td>
+                  <td>
+                    {t.status === 'pendente' && <span className="badge badge-warning">Pendente</span>}
+                    {t.status === 'concluida' && <span className="badge badge-success">Concluída</span>}
+                    {t.status === 'recusada' && <span className="badge badge-danger">Recusada</span>}
+                  </td>
+                  <td style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+                    {t.observacao || '-'}
+                  </td>
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    {t.status === 'pendente' && (
+                      <>
+                        <button className="btn-success" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleStatus(t.id, 'concluida')}>Aprovar</button>
+                        <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => handleStatus(t.id, 'recusada')}>Recusar</button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan="8" style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma troca registrada</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+          <div className="card" style={{ maxWidth: 360, width: '90vw', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 12, fontSize: 15, fontWeight: 600 }}>Motivo da recusa</p>
+            <input
+              autoFocus
+              value={modal.inputValue}
+              onChange={e => setModal({ ...modal, inputValue: e.target.value })}
+              placeholder="Digite o motivo..."
+              style={{ width: '100%', marginBottom: 16 }}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="btn-danger" onClick={async () => {
+                const motivo = modal.inputValue;
+                const id = modal.id;
+                setModal(null);
+                await window.api.put(`/api/trocas/${id}`, { status: 'recusada', observacao: motivo || undefined });
+                loadData();
+              }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

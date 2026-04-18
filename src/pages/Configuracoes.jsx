@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import Auditoria from './Auditoria';
+import Backup from './Backup';
 
 export default function Configuracoes({ user }) {
   const [tab, setTab] = useState('empresa');
@@ -10,6 +12,9 @@ export default function Configuracoes({ user }) {
   const [editingPag, setEditingPag] = useState(null);
   const [impressoras, setImpressoras] = useState([]);
   const [loadingImpressoras, setLoadingImpressoras] = useState(false);
+  const [modal, setModal] = useState(null);
+  const showAlert = (msg) => { document.activeElement?.blur(); setModal({ msg }); };
+  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
 
   useEffect(() => {
     loadData();
@@ -56,7 +61,7 @@ export default function Configuracoes({ user }) {
 
   const handleSaveEmpresa = async () => {
     if (configs.empresa_cnpj && !validateCNPJ(configs.empresa_cnpj)) {
-      alert('CNPJ inválido! Verifique os dígitos.');
+      showAlert('CNPJ inválido! Verifique os dígitos.');
       return;
     }
     await window.api.put('/api/configuracoes', {
@@ -67,7 +72,7 @@ export default function Configuracoes({ user }) {
       empresa_endereco: configs.empresa_endereco,
       empresa_logo: configs.empresa_logo || ''
     });
-    alert('Dados da empresa salvos!');
+    showAlert('Dados da empresa salvos!');
   };
 
   const handleLogoUpload = (e) => {
@@ -93,7 +98,7 @@ export default function Configuracoes({ user }) {
       cor_sombra: configs.cor_sombra
     });
     applyTheme(configs);
-    alert('Cores salvas!');
+    showAlert('Cores salvas!');
   };
 
   const handleResetCores = async () => {
@@ -109,7 +114,7 @@ export default function Configuracoes({ user }) {
     setConfigs({ ...configs, ...defaults });
     await window.api.put('/api/configuracoes', defaults);
     applyTheme({ ...configs, ...defaults });
-    alert('Cores resetadas para o padrão!');
+    showAlert('Cores resetadas para o padrão!');
   };
 
   const applyTheme = (cfg) => {
@@ -136,10 +141,10 @@ export default function Configuracoes({ user }) {
   };
 
   const handleDeletePag = async (id) => {
-    if (confirm('Excluir esta forma de pagamento?')) {
+    askConfirm('Excluir esta forma de pagamento?', async () => {
       await window.api.delete(`/api/formas-pagamento/${id}`);
       loadData();
-    }
+    });
   };
 
   if (!configs) return <div>Carregando...</div>;
@@ -154,7 +159,9 @@ export default function Configuracoes({ user }) {
           { id: 'empresa', label: 'Dados da Empresa' },
           { id: 'tema', label: 'Tema e Cores' },
           { id: 'pagamentos', label: 'Formas de Pagamento' },
-          { id: 'impressora', label: 'Impressora' }
+          { id: 'impressora', label: 'Impressora' },
+          { id: 'auditoria', label: 'Auditoria' },
+          { id: 'backup', label: 'Backup' }
         ].map(t => (
           <button
             key={t.id}
@@ -378,14 +385,14 @@ export default function Configuracoes({ user }) {
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn-success" onClick={async () => {
               await window.api.put('/api/configuracoes', { impressora_padrao: configs.impressora_padrao || '' });
-              alert('Impressora salva!');
+              showAlert('Impressora salva!');
             }}>Salvar</button>
             {configs.impressora_padrao && (
               <button className="btn-secondary" onClick={async () => {
                 const html = `<html><body style="font-family:monospace;text-align:center;padding:20px"><h2>Teste de Impressão</h2><p>PDV Loja de Roupas</p><p>${new Date().toLocaleString('pt-BR')}</p></body></html>`;
                 const res = await window.electron.printReceipt(html, configs.impressora_padrao);
-                if (res.success) alert('Página de teste enviada para a impressora!');
-                else alert('Falha ao imprimir: ' + (res.reason || 'erro desconhecido'));
+                if (res.success) showAlert('Página de teste enviada para a impressora!');
+                else showAlert('Falha ao imprimir: ' + (res.reason || 'erro desconhecido'));
               }}>Imprimir Teste</button>
             )}
           </div>
@@ -472,6 +479,24 @@ export default function Configuracoes({ user }) {
             </tbody>
           </table>
           {pagamentos.length === 0 && <p style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}>Nenhuma forma de pagamento cadastrada</p>}
+        </div>
+      )}
+
+      {tab === 'auditoria' && <Auditoria />}
+
+      {tab === 'backup' && <Backup user={user} />}
+
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+          <div className="card" style={{ maxWidth: 360, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
+            {modal.onConfirm ? (
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+                <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+              </div>
+            ) : <button className="btn-primary" onClick={() => setModal(null)}>OK</button>}
+          </div>
         </div>
       )}
     </div>

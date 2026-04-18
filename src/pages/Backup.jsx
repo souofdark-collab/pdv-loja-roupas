@@ -19,6 +19,8 @@ export default function Backup({ user }) {
   const [wipeLogin, setWipeLogin] = useState('');
   const [wipeSenha, setWipeSenha] = useState('');
   const [wipeErro, setWipeErro] = useState('');
+  const [modal, setModal] = useState(null);
+  const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
 
   useEffect(() => {
     loadTablesInfo();
@@ -55,26 +57,21 @@ export default function Backup({ user }) {
       setStatus('Selecione um arquivo de backup');
       return;
     }
-    if (!confirm('ATENÇÃO: Isso irá substituir TODOS os dados atuais pelos dados do backup. Deseja continuar?')) {
-      return;
-    }
-    setLoading(true);
-    setStatus('Importando backup...');
-    try {
-      const text = await fileSelected.text();
-      const backup = JSON.parse(text);
-      if (!backup.data) {
-        setStatus('Arquivo de backup inválido');
-        setLoading(false);
-        return;
+    askConfirm('ATENÇÃO: Isso irá substituir TODOS os dados atuais pelos dados do backup. Deseja continuar?', async () => {
+      setLoading(true);
+      setStatus('Importando backup...');
+      try {
+        const text = await fileSelected.text();
+        const backup = JSON.parse(text);
+        if (!backup.data) { setStatus('Arquivo de backup inválido'); setLoading(false); return; }
+        await window.api.post('/api/backup/restore', { data: backup.data });
+        setStatus('Backup restaurado com sucesso! Recarregando...');
+        setTimeout(() => window.location.reload(), 2000);
+      } catch (err) {
+        setStatus('Erro ao importar: ' + err.message);
       }
-      await window.api.post('/api/backup/restore', { data: backup.data });
-      setStatus('Backup restaurado com sucesso! Recarregando...');
-      setTimeout(() => window.location.reload(), 2000);
-    } catch (err) {
-      setStatus('Erro ao importar: ' + err.message);
-    }
-    setLoading(false);
+      setLoading(false);
+    });
   };
 
   const handleWipe = async () => {
@@ -173,6 +170,18 @@ export default function Backup({ user }) {
           Limpar Banco de Dados
         </button>
       </div>
+
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setModal(null)}>
+          <div className="card" style={{ maxWidth: 400, width: '90vw', textAlign: 'center', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <p style={{ marginBottom: 20, fontSize: 15 }}>{modal.msg}</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
+              <button className="btn-danger" onClick={() => { setModal(null); modal.onConfirm(); }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tables Info */}
       <div className="card">
