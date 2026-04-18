@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guia completo para o Claude Code trabalhar neste repositório. Leia inteiro antes de implementar qualquer coisa.
 
 ---
 
@@ -22,19 +22,19 @@ npm run electron:build # build completo + instalador (electron-builder → relea
 
 ## GitHub — Fluxo de Atualização
 
-Após qualquer alteração de código, commitar e subir para o GitHub automaticamente:
+Após qualquer alteração de código, commitar e subir para o GitHub:
 
 ```bash
-git add -p                          # revisar alterações (ou git add <arquivo>)
-git commit -m "descrição da mudança"
-git push origin main
+git add <arquivo(s)>
+git commit -m "descrição do porquê da mudança"
+git push origin master
 ```
 
 **Regras:**
-- Sempre criar um novo commit após cada conjunto de mudanças — nunca usar `--amend` em commits já publicados
-- Mensagem de commit deve descrever o **porquê** da mudança, não o que foi alterado
-- Nunca usar `--force` no push para `main`
-- Se o repositório ainda não tiver remote configurado: `git remote add origin <url-do-repo>`
+- Branch principal é `master` (não `main`)
+- Sempre criar novo commit — nunca `--amend` em commits já publicados
+- Nunca `--force` no push
+- Se o remote não estiver configurado: `git remote add origin <url>`
 
 ---
 
@@ -43,49 +43,50 @@ git push origin main
 ```
 pdv-loja-roupas/
 ├── src/                        # Frontend React
-│   ├── App.jsx                 # Roteamento, estado global (user, theme), VendasVendas modal
+│   ├── App.jsx                 # Roteamento, estado global (user, theme), modal PDV fechar
 │   ├── index.css               # Variáveis CSS globais (tema dark, cores customizáveis)
 │   ├── components/
-│   │   └── Layout.jsx          # Sidebar com menu de navegação + badge estoque baixo
-│   ├── pages/                  # Uma página por rota
+│   │   └── Layout.jsx          # Sidebar fixa (height:100vh, overflow:hidden) + badge estoque baixo
+│   ├── pages/
 │   │   ├── Login.jsx
 │   │   ├── PDV.jsx             # Ponto de venda principal
-│   │   ├── Vendas.jsx          # Histórico de vendas + cancelamento + reimpressão
-│   │   ├── Produtos.jsx
-│   │   ├── Estoque.jsx
+│   │   ├── Vendas.jsx          # Histórico + cancelamento + reimpressão
+│   │   ├── Produtos.jsx        # CRUD + criação de N variações de uma vez
+│   │   ├── Estoque.jsx         # CRUD + movimentação + busca + código de barras por item
+│   │   ├── ControleCaixa.jsx   # 3 abas: Estoque Total / Estoque Atual / Receita x Despesas
 │   │   ├── Clientes.jsx
-│   │   ├── Promocoes.jsx       # Promoções com regras por produto ou categoria
+│   │   ├── Promocoes.jsx
 │   │   ├── Despesas.jsx
-│   │   ├── FechamentoCaixa.jsx # Relatório diário/quinzenal/mensal
+│   │   ├── FechamentoCaixa.jsx
 │   │   ├── Trocas.jsx
 │   │   ├── Relatorios.jsx
 │   │   ├── Auditoria.jsx
 │   │   ├── Usuarios.jsx
-│   │   ├── Configuracoes.jsx   # Tema, cores, formas de pagamento, dados da empresa, impressora
-│   │   └── Backup.jsx          # Export/import/wipe do banco
+│   │   ├── Configuracoes.jsx   # Abas: Empresa, Tema, Pagamentos, Impressora, Auditoria, Backup
+│   │   └── Backup.jsx
 │   └── utils/
-│       └── pdfExport.js        # Geração de PDF via window.print() em iframe oculto
+│       └── pdfExport.js        # PDF via window.print() em iframe oculto
 │
 ├── electron/
-│   ├── main.js                 # Entry point Electron + Express server (porta 3001) + IPC handlers
-│   ├── preload.js              # Bridge window.api → fetch localhost:3001 + window.electron (IPC)
+│   ├── main.js                 # Entry point Electron + Express :3001 + IPC handlers
+│   ├── preload.js              # window.api (fetch) + window.electron (IPC)
 │   └── api/
-│       ├── db.js               # Banco JSON em memória (lê/salva arquivos .json)
-│       └── routes/             # Uma rota por domínio
-│           ├── auth.js         # POST /api/login (registra log de acesso)
-│           ├── backup.js       # GET /api/backup/export, POST /api/backup/restore, POST /api/backup/wipe
-│           ├── vendas.js       # CRUD vendas + venda_itens + controle estoque + log
-│           ├── estoque.js      # CRUD estoque + movimentações + validação saída negativa + log
-│           ├── produtos.js     # CRUD produtos + unicidade código de barras + log
+│       ├── db.js               # Banco JSON em memória
+│       └── routes/
+│           ├── auth.js
+│           ├── backup.js
+│           ├── vendas.js       # Salva tamanho/cor em venda_itens; GET/:id faz join com estoque
+│           ├── estoque.js      # GET retorna codigo_barras do item (fallback: codigo do produto)
+│           ├── produtos.js     # POST cria N produtos + N entradas de estoque com barcodes únicos
 │           ├── clientes.js
 │           ├── categorias.js
 │           ├── promocoes.js
 │           ├── despesas.js
 │           ├── usuarios.js
 │           ├── trocas.js
-│           ├── caixa.js        # Abertura/fechamento de caixa + log
-│           ├── relatorios.js   # GET /api/relatorios/fechamento
-│           ├── auditoria.js    # GET/POST /api/auditoria (tabela log_acoes)
+│           ├── caixa.js
+│           ├── relatorios.js
+│           ├── auditoria.js
 │           └── configuracoes.js
 │
 ├── vite.config.js              # Apenas react() — SEM vite-plugin-electron
@@ -98,11 +99,11 @@ pdv-loja-roupas/
 
 - **Frontend:** React 18 + React Router 6, Vite 6
 - **Desktop:** Electron 33
-- **Backend local:** Express (roda na porta 3001 dentro do Electron)
+- **Backend local:** Express na porta 3001 (dentro do Electron)
 - **Banco:** Arquivos JSON em `%APPDATA%\pdv-loja-roupas\` (sem SQLite)
-- **Auth:** bcryptjs para hash de senhas
-- **PDF:** `window.print()` via iframe oculto (sem biblioteca)
-- **Impressão direta:** `ipcMain.handle('print-receipt', ...)` → `webContents.print()` silencioso
+- **Auth:** bcryptjs
+- **PDF:** `window.print()` via iframe oculto
+- **Impressão direta:** `ipcMain.handle('print-receipt', ...)` → `webContents.print()` silent
 
 ---
 
@@ -113,65 +114,63 @@ pdv-loja-roupas/
 **Tabelas:**
 `usuarios`, `clientes`, `categorias`, `produtos`, `estoque`, `estoque_movimentacoes`, `vendas`, `venda_itens`, `promocoes`, `promocoes_regras`, `despesas_categorias`, `despesas`, `configuracoes`, `formas_pagamento`, `trocas`, `historico_precos`, `log_acoes`, `abertura_caixa`
 
-**API do db (electron/api/db.js):**
+**API do db:**
 ```js
 db.select(table, where)     // filtra por igualdade
 db.findOne(table, where)
 db.insert(table, data)      // retorna { lastInsertRowid }
 db.update(table, id, data)
 db.delete(table, id)
-db._data[table]             // acesso direto (usado no backup)
+db._data[table]             // acesso direto (backup)
 db._save(table)             // persiste para JSON
 ```
 
-**Atenção:** `db.findOne('usuarios', { login, ativo: 1 })` — o campo `ativo` deve ser `1` (número), não `true`. Se o admin não consegue logar, verificar `%APPDATA%\pdv-loja-roupas\usuarios.json` e confirmar `"ativo": 1`.
+**Atenção:** `db.findOne('usuarios', { login, ativo: 1 })` — `ativo` deve ser `1` (número), não `true`.
 
-**Backups automáticos:** `%APPDATA%\pdv-loja-roupas\backups-auto\` — gerado ao iniciar o app e a cada 24h, mantém os últimos 7.
+**Backups automáticos:** `%APPDATA%\pdv-loja-roupas\backups-auto\` — gerado ao iniciar e a cada 24h, mantém os últimos 7.
 
 ---
 
-## Como o Dev funciona
+## Como o Dev Funciona
 
-`vite-plugin-electron` foi **removido** do `vite.config.js` porque causava dupla instância do Electron (o plugin spawna Electron como filho do processo Vite, e o concurrently também iniciava `electron .`).
+`vite-plugin-electron` foi **removido** do `vite.config.js` — causava dupla instância.
 
-Fluxo atual:
-1. `vite` sobe o frontend em `:5173`
-2. `wait-on` aguarda `:5173` ficar disponível
-3. `electron .` carrega `electron/main.js` (via `"main"` no package.json)
-4. `main.js` inicia Express em `:3001` com todas as rotas
-5. Electron abre janela carregando `http://localhost:5173`
+Fluxo:
+1. `vite` sobe frontend em `:5173`
+2. `wait-on` aguarda `:5173`
+3. `electron .` carrega `electron/main.js`
+4. `main.js` inicia Express em `:3001`
+5. Electron abre janela em `http://localhost:5173`
 
-**Se travar com "Outra instância já está rodando":** matar processos com `powershell -Command "Get-Process electron,node -ErrorAction SilentlyContinue | Stop-Process -Force"` antes de `npm run dev`.
+**Se travar:** `powershell -Command "Get-Process electron,node -ErrorAction SilentlyContinue | Stop-Process -Force"`
 
 ---
 
 ## Bridge Frontend ↔ API
 
-`electron/preload.js` expõe dois objetos globais:
-
-**`window.api`** — fetch para o Express em `:3001`:
+**`window.api`** — fetch para Express `:3001`:
 ```js
 window.api.get(url)
 window.api.post(url, body)
 window.api.put(url, body)
-window.api.delete(url, body)   // body é opcional (suporta corpo no DELETE)
+window.api.delete(url, body)  // body opcional
 ```
-Erros HTTP retornam `throw` com `.status` no objeto de erro.
+Erros HTTP fazem `throw` com `.status`.
 
-**`window.electron`** — IPC direto com o processo principal:
+**`window.electron`** — IPC:
 ```js
-window.electron.getPrinters()                    // lista impressoras instaladas
-window.electron.printReceipt(html, printerName)  // imprime silenciosamente
-window.electron.print(content)                   // legado
+window.electron.getPrinters()
+window.electron.printReceipt(html, printerName)
+window.electron.print(content)  // legado
 ```
 
 ---
 
 ## Tema e Cores
 
-`applyTheme()` em `src/App.jsx` aplica variáveis CSS no `:root`. É chamado no boot e ao salvar configurações.
+`applyTheme()` em `App.jsx` aplica variáveis CSS no `:root`.
 
-| Config salva | Variável CSS |
+| Config | Variável CSS |
 |---|---|
 | `cor_accent` | `--accent` |
 | `cor_bg` | `--bg-primary` |
@@ -180,70 +179,15 @@ window.electron.print(content)                   // legado
 | `cor_text` | `--text-primary`, `--text-secondary` |
 | `cor_btn` | `--btn-bg` |
 
-Botões primários usam `background: var(--btn-bg, var(--accent))`.
-
 ---
 
-## Funcionalidades Implementadas
+## ⚠️ REGRA CRÍTICA — Dialogs no Electron
 
-### PDV (src/pages/PDV.jsx)
-- Busca de produtos em **modal dedicado** (não dropdown inline) — evita poluição visual com muitos produtos
-- Modal de busca tem: input com autofoco, filtros por categoria em pills, lista com tamanho/cor/estoque disponível
-- Promoções por produto aplicadas automaticamente ao adicionar ao carrinho
-- `aplicavel_a === 'produto'` → verifica `promocoes_regras` com `produto_id` correspondente
-- Item do carrinho guarda `preco_original` e `promo_aplicada`; mostra badge com preço riscado
-- `descontoPromocao` ignora promoções `aplicavel_a === 'produto'` (já embutidas no preço)
-- Botão 📦 abre modal "Aguardando Leitura" para leitor de código de barras
-- Fechar PDV com itens no carrinho exige confirmação (`pdvCartRef` + `handleClosePDV` em App.jsx)
-- Desconto manual: validação ao trocar tipo (% ↔ R$) recalcula/limita o valor atual
-- **Recibo** inclui: nome/endereço/CNPJ/telefone da empresa + CPF do cliente (se cadastrado)
-- **Impressão**: se `config.impressora_padrao` definido → `window.electron.printReceipt()` silencioso; caso contrário → `window.open` com diálogo do sistema
+**NUNCA use `window.confirm()`, `window.alert()` ou `window.prompt()`.**
 
-### Vendas (src/pages/Vendas.jsx e src/App.jsx)
-- Modal de histórico com tabela `minWidth: 900`, modais com `maxWidth: 1200, width: 95vw`
-- Cancelamento requer: motivo (textarea obrigatório) + autenticação de admin
-- `motivo_cancelamento` salvo na venda e no `log_acoes`
-- Botão "Imprimir" em cada linha + botão "Reimprimir" no modal de detalhes
-- Em `App.jsx`: componente `VendasVendas` com modal de cancelamento inline
+Qualquer dialog nativo causa perda de foco no OS — o teclado para de funcionar até o usuário clicar na janela. Este bug foi corrigido em **todas** as páginas com custo alto. Já ocorreu dezenas de vezes.
 
-### Backup (src/pages/Backup.jsx + electron/api/routes/backup.js)
-- **Export:** `GET /api/backup/export` retorna dados brutos de TODAS as tabelas
-- **Import:** `POST /api/backup/restore` restaura todas as tabelas diretamente no `db._data`
-- **Wipe:** `POST /api/backup/wipe` — exige login do admin principal (menor ID entre admins)
-
-### Fechamento de Caixa (src/pages/FechamentoCaixa.jsx)
-- Períodos: Diário, Quinzenal (1ª/2ª), Mensal
-- Rota: `GET /api/relatorios/fechamento?data_inicio=YYYY-MM-DD&data_fim=YYYY-MM-DD`
-
-### Auditoria (src/pages/Auditoria.jsx)
-- Registra automaticamente: Login, Nova Venda, Cancelamento de Venda, Entrada/Saída/Ajuste de Estoque, Produto Cadastrado, Produto Desativado, Alteração de Preço, Abertura/Fechamento de Caixa
-
-### Configurações (src/pages/Configuracoes.jsx)
-- Abas: Dados da Empresa, Tema e Cores, Formas de Pagamento, **Impressora**
-- Aba Impressora: lista impressoras via `window.electron.getPrinters()`, seleção salva como `impressora_padrao` nas configurações, botão "Imprimir Teste"
-
-### Estoque (src/pages/Estoque.jsx)
-- Edição salva `tamanho` e `cor` além de `quantidade` e `minimo` (bug anterior ignorava tamanho/cor)
-- Saída manual valida estoque não negativo (retorna 400 se insuficiente)
-
-### Promoções (src/pages/Promocoes.jsx)
-- Formulário só abre após regras carregarem do servidor (`setShowForm(true)` dentro do `.then()`)
-- `produto_id` e `categoria_id` das regras convertidos para `Number()` ao salvar
-
-### Relatórios (src/pages/Relatorios.jsx)
-- Export CSV com escape correto de caracteres especiais (vírgulas, aspas, quebras de linha)
-
----
-
-## Regra Obrigatória — Dialogs no Electron
-
-**NUNCA use `window.confirm()`, `window.alert()` ou `window.prompt()` neste projeto.**
-
-Qualquer dialog nativo do Electron causa perda de foco no OS ao ser fechado — o teclado para de funcionar em todos os campos até o usuário clicar na janela novamente. Este bug já ocorreu em **todas** as páginas e foi corrigido com custo alto.
-
-### Padrão obrigatório para confirmações e alertas
-
-Sempre use o padrão de modal React com `useState`:
+### Padrão obrigatório
 
 ```jsx
 const [modal, setModal] = useState(null);
@@ -251,7 +195,7 @@ const showAlert  = (msg)     => { document.activeElement?.blur(); setModal({ msg
 const askConfirm = (msg, fn) => { document.activeElement?.blur(); setModal({ msg, onConfirm: fn }); };
 ```
 
-JSX do modal (colocar no final do return, antes do `</div>` fechador):
+JSX do modal (no final do `return`, antes do `</div>` fechador):
 
 ```jsx
 {modal && (
@@ -269,40 +213,83 @@ JSX do modal (colocar no final do return, antes do `</div>` fechador):
 )}
 ```
 
-Para `prompt()` (input do usuário), adicione `inputValue` ao estado e um `<input>` no modal — veja `Trocas.jsx` como referência.
+Para substituir `prompt()` (input do usuário): adicione `inputValue` ao estado do modal e um `<input>` no JSX. Ver `Trocas.jsx` como referência completa.
 
 ---
 
-## Problemas Conhecidos / Histórico de Bugs
+## ⚠️ REGRA CRÍTICA — useEffect e Temporal Dead Zone
 
-### Dupla instância Electron (RESOLVIDO)
-`vite-plugin-electron` + `electron .` no concurrently causavam dois processos Electron disputando porta 3001. Fix: remover `vite-plugin-electron` do `vite.config.js`.
+Todo `useEffect` que referencia um state ou ref **deve ser declarado DEPOIS** do `useState`/`useRef` correspondente. O array de dependências é avaliado imediatamente — se a variável não foi declarada ainda, lança ReferenceError e o componente fica em branco (tela vazia).
 
-### Admin com `ativo: 0` (RESOLVIDO)
-Após restore/wipe parcial, o campo `ativo` do admin pode ficar `0`, impedindo login. `db.init()` em `db.js` agora corrige isso automaticamente ao iniciar.
+Já ocorreu 3× neste projeto: `barcodeMode` em PDV.jsx, `barcodeMode` em Produtos.jsx, `showProductModal` em PDV.jsx.
 
-### Login falha após restore com backup antigo (RESOLVIDO)
-`GET /api/usuarios` remove `senha_hash` por segurança. Após restore, `bcrypt.compareSync` jogava `Illegal arguments: string, undefined`.
-Fixes: (1) `auth.js` verifica `!user.senha_hash` antes do compareSync; (2) `db.init()` recria hash com `admin123` se ausente.
+---
 
-### Despesas: categoria e recorrência mostrando "-" (RESOLVIDO)
-`categoria_id` salvo como string pelo `<select>`, comparação usava `===` com `c.id` (número). Fix: `Number(categoria_id)` no insert/update/find de `despesas.js`. Recorrência `'nenhuma'` não era tratada em `recorrenciaLabel`.
+## Funcionalidades Implementadas
 
-### useEffect com variável em temporal dead zone → tela branca (RESOLVIDO, RECORRENTE)
-**Regra crítica:** todo `useEffect` que referencia um state ou ref deve ser declarado DEPOIS do `useState`/`useRef` correspondente. O array de dependências é avaliado imediatamente durante o render — se a variável ainda não foi declarada, lança ReferenceError e o componente fica em branco.
-Já ocorreu 3 vezes: `barcodeMode` em PDV.jsx, `barcodeMode` em Produtos.jsx, `showProductModal` em PDV.jsx.
+### Layout (src/components/Layout.jsx)
+- Sidebar **fixa**: container usa `height: 100vh; overflow: hidden` — apenas o `<main>` rola
+- Badge de estoque baixo na sidebar
+- Menu inclui rota `/controle-caixa` → ControleCaixa
 
-### Backup incompleto antes de 2026-04-17 (RESOLVIDO)
-Versões antigas exportavam via rotas individuais e perdiam `venda_itens`, `log_acoes`, `historico_precos`, `abertura_caixa`. Backup agora usa `GET /api/backup/export` que lê `db._data` direto.
+### PDV (src/pages/PDV.jsx)
+- Busca em modal dedicado com filtro por categoria (pills) e estoque disponível
+- Leitura de código de barras: busca primeiro em `estoque.codigo_barras` (item específico), depois em `produto.codigo_barras`
+- `addToCart(produto, estoqueItemOverride)` aceita item de estoque específico para garantir baixa correta
+- Promoções por produto aplicadas automaticamente; badge com preço riscado no carrinho
+- Recibo exibe tamanho/cor somente quando preenchidos (não mostra `-/-`)
+- Impressão: silenciosa se `impressora_padrao` configurada, senão abre diálogo
+- Fechar PDV com itens no carrinho exige confirmação (modal React, não `confirm()`)
 
-### produtos.js: rota /produtos/buscar inacessível (RESOLVIDO)
-`GET /produtos/buscar` estava definido após `GET /produtos/:id`. O Express interceptava com `id="buscar"` → 404. Fix: mover `/produtos/buscar` para antes de `/produtos/:id`.
+### Produtos (src/pages/Produtos.jsx + electron/api/routes/produtos.js)
+- Campo **"Variações a cadastrar"** (`num_variacoes`, padrão 1): ao salvar cria N produtos com o mesmo nome e N entradas de estoque, cada um com código de barras único gerado automaticamente (`789` + timestamp + random)
+- O primeiro produto pode receber código de barras manual; os demais são gerados
+- Validação de duplicidade de código de barras (retorna 400 se conflito)
+- Após criar, editar cada entrada no Estoque para definir tamanho/cor/quantidade
 
-### vendas.js PUT: forma_pagamento sobrescrita com undefined (RESOLVIDO)
-Ao cancelar uma venda sem enviar `forma_pagamento` no body, o campo era sobrescrito com `undefined`. Fix: `forma_pagamento: forma_pagamento || venda?.forma_pagamento`.
+### Estoque (src/pages/Estoque.jsx + electron/api/routes/estoque.js)
+- **Campo de busca** em tempo real: filtra por produto, tamanho, cor ou código de barras
+- Cada item de estoque tem seu próprio `codigo_barras` exibido na tabela
+- `GET /estoque` retorna `codigo_barras` do item; se vazio, usa `codigo_barras` do produto como fallback
+- Edição salva `tamanho`, `cor`, `quantidade`, `minimo` e `codigo_barras`
+- **Tamanhos numéricos:** apenas pares — `36, 38, 40, 42, 44, 46` (mais `PP P M G GG XG XXG`)
+- Movimentação manual (entrada/saída/ajuste) com validação de estoque negativo
 
-### Estoque: tamanho/cor não salvos ao editar (RESOLVIDO)
-`handleSubmit` em Estoque.jsx enviava apenas `quantidade` e `minimo`. Rota PUT também só aceitava esses campos. Fix: incluir `tamanho` e `cor` em ambos.
+### Vendas (src/pages/Vendas.jsx + electron/api/routes/vendas.js)
+- `POST /vendas`: lê item de estoque antes de inserir `venda_itens` para salvar `tamanho` e `cor`
+- `GET /vendas/:id`: faz join com tabela `estoque` para popular `tamanho`/`cor` em vendas antigas
+- Cancelamento: motivo obrigatório + autenticação admin + log de auditoria
+
+### ControleCaixa (src/pages/ControleCaixa.jsx)
+Página com **3 abas**:
+
+**Aba 1 — Estoque Total**
+- Cards: Total de Itens, Capital Investido, Receita Prevista, Lucro Previsto
+- Tabela detalhada por SKU com `maxHeight: calc(100vh - 420px)` (≈12 linhas em tela cheia)
+
+**Aba 2 — Estoque Atual**
+- Cards: Total de Vendas, Receita Realizada, Ticket Médio, Descontos Concedidos
+- Tabela de todas as vendas (ordenadas por data desc)
+- Tabela de trocas/devoluções com badge de pendentes
+
+**Aba 3 — Receita x Despesas**
+- Cards: Receita Realizada, Total Despesas, Saldo do Caixa, Margem Líquida
+- Barra visual de distribuição (despesas vs saldo)
+- Tabela de despesas por categoria com % sobre receita
+- Resumo financeiro: Receita − Descontos − Despesas = Saldo Líquido
+
+### Configurações (src/pages/Configuracoes.jsx)
+- Abas: Dados da Empresa, Tema e Cores, Formas de Pagamento, Impressora, Auditoria, Backup
+- Aba Impressora: lista via `window.electron.getPrinters()`, salva `impressora_padrao`, botão "Imprimir Teste"
+- CNPJ com validação de dígitos verificadores
+
+### Backup (src/pages/Backup.jsx)
+- Export: `GET /api/backup/export` — todas as tabelas via `db._data`
+- Import: `POST /api/backup/restore` — substitui tudo (pede confirmação via modal React)
+- Wipe: modal com login + senha do admin principal
+
+### Auditoria
+Registra automaticamente: Login, Nova Venda, Cancelamento, Entrada/Saída/Ajuste Estoque, Produto Cadastrado/Desativado, Alteração de Preço, Abertura/Fechamento de Caixa.
 
 ---
 
@@ -310,29 +297,92 @@ Ao cancelar uma venda sem enviar `forma_pagamento` no body, o campo era sobrescr
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| POST | `/api/login` | Autenticação + log de acesso |
+| POST | `/api/login` | Auth + log |
+| GET | `/api/produtos` | Lista produtos ativos, ordenados por nome |
+| GET | `/api/produtos/buscar` | Busca por nome/barcode — **DEVE ficar antes de `/produtos/:id`** |
+| GET | `/api/produtos/:id` | Produto por ID |
+| POST | `/api/produtos` | Cria N produtos + N estoques (`num_variacoes`) |
+| PUT | `/api/produtos/:id` | Atualiza; grava histórico se preço mudou |
+| DELETE | `/api/produtos/:id` | Desativa (ativo=0) |
+| GET | `/api/estoque` | Lista com `produto_nome` + `codigo_barras` (fallback produto) |
+| PUT | `/api/estoque/:id` | Atualiza qtd, mínimo, tamanho, cor, código de barras |
+| POST | `/api/estoque/movimentacao` | Entrada/saída/ajuste + log |
+| GET | `/api/estoque/movimentacoes` | Histórico (aceita `?estoque_id=`) |
+| GET | `/api/vendas` | Lista vendas (aceita `?inicio=&fim=`) |
+| POST | `/api/vendas` | Cria venda + baixa estoque + log |
+| PUT | `/api/vendas/:id` | Cancela/atualiza |
+| GET | `/api/vendas/:id` | Detalhes com itens + tamanho/cor |
+| GET | `/api/despesas` | Lista despesas com `categoria_nome` |
+| GET | `/api/trocas` | Lista trocas/devoluções |
+| GET | `/api/relatorios/fechamento` | `?data_inicio=&data_fim=` |
+| GET | `/api/auditoria` | Log de ações |
 | GET | `/api/backup/export` | Export raw de todas as tabelas |
 | POST | `/api/backup/restore` | Restore completo |
 | POST | `/api/backup/wipe` | Limpar banco (só admin principal) |
-| GET | `/api/vendas` | Lista vendas (aceita `?inicio=&fim=`) |
-| POST | `/api/vendas` | Criar venda + baixar estoque + log |
-| PUT | `/api/vendas/:id` | Cancelar/atualizar venda |
-| GET | `/api/vendas/:id` | Detalhes da venda com itens |
-| GET | `/api/estoque` | Lista estoque com `produto_nome` |
-| PUT | `/api/estoque/:id` | Atualiza quantidade, mínimo, tamanho e cor |
-| POST | `/api/estoque/movimentacao` | Entrada/saída/ajuste manual + log |
-| GET | `/api/relatorios/fechamento` | Fechamento de caixa (range de datas) |
-| GET | `/api/auditoria` | Log de ações (tabela `log_acoes`) |
-| GET | `/api/caixa/atual` | Abertura de caixa em aberto |
-| POST | `/api/caixa/abertura` | Abrir caixa + log |
-| PUT | `/api/caixa/fechamento/:id` | Fechar caixa + log |
+| GET | `/api/caixa/atual` | Abertura em aberto |
+| POST | `/api/caixa/abertura` | Abrir caixa |
+| PUT | `/api/caixa/fechamento/:id` | Fechar caixa |
 | GET | `/api/promocoes/ativas` | Promoções ativas com regras |
-| GET | `/api/produtos/buscar` | Busca por nome/código (deve ficar ANTES de `/produtos/:id`) |
 
-## IPC Electron (main.js)
+## IPC Electron
 
 | Handler | Descrição |
 |---------|-----------|
-| `get-printers` | Retorna `mainWindow.webContents.getPrintersAsync()` |
-| `print-receipt` | Cria BrowserWindow oculta, carrega HTML, imprime com `silent: true` para `deviceName` |
-| `dialog:print` | Legado (sem uso real) |
+| `get-printers` | `mainWindow.webContents.getPrintersAsync()` |
+| `print-receipt` | BrowserWindow oculta + `webContents.print()` silent |
+| `dialog:print` | Legado |
+
+---
+
+## Padrões de UI
+
+### Tabelas com scroll
+Todas as tabelas com muitos itens usam:
+```jsx
+<div style={{ maxHeight: 480, overflowY: 'auto' }}>
+  <table>...</table>
+</div>
+```
+Para telas onde o usuário quer ver mais itens (ex: ControleCaixa): `calc(100vh - Xpx)` com `minHeight`.
+
+### Tabs (submenus)
+Padrão usado em Configurações e ControleCaixa:
+```jsx
+const [tab, setTab] = useState('primeiro');
+// botão de tab:
+style={{ background: tab === id ? 'var(--accent)' : 'transparent', borderRadius: tab === id ? '8px 8px 0 0' : 0, ... }}
+```
+
+---
+
+## Bugs Conhecidos / Histórico
+
+### Dialogs nativos causam perda de foco (RESOLVIDO — NUNCA REGREDIR)
+Ver seção "REGRA CRÍTICA — Dialogs no Electron" acima. Corrigido em todas as páginas: Produtos, Estoque, Categorias, Clientes, Usuarios, Despesas, Promocoes, Trocas, Configuracoes, Backup.
+
+### useEffect em temporal dead zone → tela branca (RESOLVIDO, RECORRENTE)
+Ver seção "REGRA CRÍTICA — useEffect" acima.
+
+### Dupla instância Electron (RESOLVIDO)
+`vite-plugin-electron` removido do `vite.config.js`.
+
+### Admin com `ativo: 0` (RESOLVIDO)
+`db.init()` corrige automaticamente ao iniciar.
+
+### Login falha após restore (RESOLVIDO)
+`auth.js` verifica `!user.senha_hash`; `db.init()` recria hash se ausente.
+
+### Despesas: categoria mostrando "-" (RESOLVIDO)
+`Number(categoria_id)` no insert/update/find.
+
+### Backup incompleto pré-2026-04-17 (RESOLVIDO)
+Backup agora usa `GET /api/backup/export` que lê `db._data` direto.
+
+### `/produtos/buscar` retornava 404 (RESOLVIDO)
+Rota movida para antes de `/produtos/:id` no Express.
+
+### vendas.js PUT: `forma_pagamento` undefined (RESOLVIDO)
+Fix: `forma_pagamento || venda?.forma_pagamento`.
+
+### Estoque GET sobrescrevia código de barras do item (RESOLVIDO)
+Campo do produto renomeado para `codigo_barras_produto`; `codigo_barras` do item preservado com fallback.
