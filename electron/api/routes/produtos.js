@@ -1,4 +1,5 @@
 const express = require('express');
+const { validate, ProdutoCreateSchema, ProdutoUpdateSchema } = require('../validation');
 
 module.exports = (db) => {
   const router = express.Router();
@@ -62,9 +63,9 @@ module.exports = (db) => {
     return `789${Date.now()}${Math.floor(Math.random() * 1e6)}`.slice(0, 16);
   };
 
-  router.post('/produtos', (req, res) => {
+  router.post('/produtos', validate(ProdutoCreateSchema), (req, res) => {
     const { nome, descricao, preco_custo, preco_venda, codigo_barras, num_variacoes, categoria_id, usuario_id: uid } = req.body;
-    const qtd = Math.max(1, Number(num_variacoes) || 1);
+    const qtd = num_variacoes;
     const now = new Date().toISOString();
 
     // Generate and validate all barcodes up-front so we can fail fast before

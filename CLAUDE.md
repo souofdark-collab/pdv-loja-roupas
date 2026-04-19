@@ -485,7 +485,7 @@ Regressão da regra crítica de dialogs. Substituído por `useModal().showAlert`
 |------|--------|-----------|
 | B1 | ✅ | `tsconfig.json` com `strict: true`, `allowJs: true`, `noEmit: true`, `module/moduleResolution: node16`. Deps: `typescript@6`, `@types/node`, `@types/express`, `zod`. Script `npm run typecheck`. Path alias `@shared/*`. |
 | B2 | ✅ | `shared/types.ts` — interfaces derivadas de `001_initial.sql` para todas as 19 tabelas + `TableMap`/`Row<T>`/`InsertInput<T>`/`UpdateInput<T>` para generics no db. |
-| B3 | ⏳ | Typar `db.js` via JSDoc ou portar para `db.ts`. Generics: `select<T extends TableName>(t: T, where?: Partial<Row<T>>): Row<T>[]`. |
-| B4 | ⏳ | Rotas migradas para TS + schemas Zod em `body`/`params`/`query`. Começar por `vendas.ts` (mais crítica) e `produtos.ts`. Requer runtime TS (tsx) ou build step. |
+| B3 | ✅ | `electron/api/db.d.ts` — tipa o módulo CJS existente com generics (`select<T>`, `insert<T>`, `findOne<T>` etc.). Zero mudança de runtime. Consumers TS (e IDE) ganham autocomplete + checagem de colunas. |
+| B4 | 🟡 | `electron/api/validation.js` — schemas Zod para vendas, produtos, estoque mov, fiado, caixa. Middleware `validate()` + coerção `z.coerce.number()` para IDs string→number. Aplicado em `POST /vendas`, `PUT /vendas/:id`, `POST /produtos`. Resto das rotas pendente (estoque, fiado, caixa, trocas). |
 | B5 | ⏳ | Frontend: `src/api/*.ts` wrappers de `window.api.*` tipados usando `@shared/types`. |
 | B6 | ⏳ | CI local — `npm run typecheck && npm test` antes de cada commit (opcional: pre-commit hook). |

@@ -1,4 +1,5 @@
 const express = require('express');
+const { validate, VendaCreateSchema, VendaUpdateSchema } = require('../validation');
 
 module.exports = (db) => {
   const router = express.Router();
@@ -50,7 +51,7 @@ module.exports = (db) => {
     });
   });
 
-  router.put('/vendas/:id', (req, res) => {
+  router.put('/vendas/:id', validate(VendaUpdateSchema), (req, res) => {
     const { forma_pagamento, status, usuario_id, motivo_cancelamento } = req.body;
     const venda = db.findOne('vendas', { id: Number(req.params.id) });
     const updateData = { forma_pagamento: forma_pagamento || venda?.forma_pagamento, status };
@@ -69,20 +70,15 @@ module.exports = (db) => {
     res.json({ id: Number(req.params.id), ...req.body });
   });
 
-  router.post('/vendas', (req, res) => {
+  router.post('/vendas', validate(VendaCreateSchema), (req, res) => {
     const { cliente_id, usuario_id, vendedor_id, itens, forma_pagamento, desconto, parcelas } = req.body;
 
-    if (!usuario_id) return res.status(400).json({ error: 'Usuário obrigatório' });
-    if (!forma_pagamento) return res.status(400).json({ error: 'Forma de pagamento obrigatória' });
-    if (!Array.isArray(itens) || itens.length === 0) return res.status(400).json({ error: 'Carrinho vazio' });
     const isFiado = /fiado|crediario|crediário/i.test(forma_pagamento);
     if (isFiado && !cliente_id) return res.status(400).json({ error: 'Cliente obrigatório para venda fiado' });
 
-    // Validate stock before writing anything
+    // Validate stock before writing anything. Basic shape (IDs, quantidade > 0)
+    // already enforced by VendaCreateSchema; here we just check availability.
     for (const item of itens) {
-      if (!item.estoque_id || !item.produto_id || !item.quantidade || item.quantidade <= 0) {
-        return res.status(400).json({ error: 'Item de venda inválido' });
-      }
       const estoqueItem = db.findOne('estoque', { id: item.estoque_id });
       if (!estoqueItem) {
         return res.status(400).json({ error: `Item de estoque #${item.estoque_id} não encontrado` });

@@ -103,6 +103,28 @@ describe('Fluxo de venda', () => {
   });
 });
 
+describe('Validação Zod (coerção string×number)', () => {
+  it('aceita IDs como string e coerce para number antes do banco', async () => {
+    const { produto_id, estoque_id } = await seedProdutoComEstoque({ qtd: 3, preco: 30 });
+    const res = await request(api).post('/api/vendas').send({
+      usuario_id: '1',
+      forma_pagamento: 'Dinheiro',
+      itens: [{ produto_id: String(produto_id), estoque_id: String(estoque_id), quantidade: '1', preco_unitario: '30' }]
+    });
+    expect(res.status).toBe(200);
+    expect(Number(res.body.total)).toBe(30);
+  });
+
+  it('rejeita body sem usuario_id com 400 específico do Zod', async () => {
+    const res = await request(api).post('/api/vendas').send({
+      forma_pagamento: 'Dinheiro',
+      itens: [{ produto_id: 1, estoque_id: 1, quantidade: 1, preco_unitario: 10 }]
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/usuario_id/i);
+  });
+});
+
 describe('Atomicidade SQLite', () => {
   it('rollback: item com estoque_id inexistente nao grava nada', async () => {
     const { produto_id, estoque_id } = await seedProdutoComEstoque({ qtd: 5, preco: 50 });
