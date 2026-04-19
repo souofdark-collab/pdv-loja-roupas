@@ -495,3 +495,47 @@ Regressão da regra crítica de dialogs. Substituído por `useModal().showAlert`
 | B4 | ✅ | `electron/api/validation.js` — schemas Zod com coerção `z.coerce.number()` para IDs string→number. Middleware `validate()` responde 400 com `{error, issues}`. Aplicado em: `POST /vendas`, `PUT /vendas/:id`, `POST /produtos`, `POST /estoque/movimentacao`, `POST /fiado/pagamento`, `POST /caixa/abertura`. |
 | B5 | ✅ | Frontend: `src/api/client.ts` (wrappers genéricos sobre `window.api` + types globais para `window.electron`) + módulos domain (`vendas.ts`, `produtos.ts`, `estoque.ts`) reusando `@shared/types`. `.jsx` existentes continuam funcionando; novos componentes/TS podem importar daqui. |
 | B6 | ✅ | Script `npm run ci` roda typecheck + smoke tests em sequência. Rodar antes de commits que mexem em rotas, db, tipos ou schemas Zod. Hook git fica opcional (não instalado). |
+
+## Recomendações pendentes (decisão do usuário)
+
+Tarefas fora do escopo original A+B, levantadas durante os testes do `electron:preview` em 2026-04-19. Não aplicar sem ok explícito.
+
+### 1. Postinstall para rebuild do `better-sqlite3` contra ABI do Electron
+**Problema:** `better-sqlite3` é módulo nativo. `npm install` baixa o binário compilado contra a ABI do Node.js atual (ex.: ABI 137 no Node 24). Electron 33 roda ABI 130 internamente, então o binário do Node **não carrega no Electron** — erro `NODE_MODULE_VERSION mismatch`. A solução manual foi rodar `npx electron-builder install-app-deps`, que rebuilda o binário contra ABI 130.
+
+**Recomendação:** adicionar `"postinstall": "electron-builder install-app-deps"` em `package.json > scripts`. Aí qualquer `npm install` (fresh clone, CI, nova máquina) já resolve a ABI automaticamente. Uma linha, sem efeitos colaterais.
+
+**Atenção:** depois do rebuild contra ABI Electron, `npm test` (que roda sob Node) pode quebrar com o mesmo mismatch ao contrário. Se isso acontecer, a solução é rodar `npm rebuild better-sqlite3` antes dos testes — ou aceitar que testes e Electron precisam de rebuilds distintos.
+
+### 2. Smart App Control do Windows 11
+**Histórico:** ao rodar o `electron:preview` pela primeira vez, o Smart App Control bloqueou o `better_sqlite3.node` rebuildado por ser um `.node` nativo não assinado. O prebuild oficial do better-sqlite3 (via GitHub releases) também é não assinado. Desabilitar Smart App Control foi a única saída prática — **decisão é irreversível sem reinstalar o Windows**.
+
+**Status atual:** desabilitado em 2026-04-19 na máquina do Henrique. Qualquer outro dev que rodar o app vai bater no mesmo bloqueio se tiver Smart App Control ativo.
+
+**Mitigação possível:** assinar o binário com um code-signing certificate no build de distribuição (via `electron-builder` config `win.signAndEditExecutable` + cert). Só vale a pena quando formos distribuir o instalador NSIS para clientes reais.
+
+### 3. Limpeza de arquivos não rastreados
+`.claude/` (settings do Claude Code local) e `corrections.txt` (notas antigas) estão untracked e aparecem em todo `git status`. Se forem transientes, adicionar ao `.gitignore`:
+```
+.claude/
+correções.txt
+```
+
+### 4. Validação manual do UI pós-migração SQLite
+Os 16 smoke tests cobrem o backend (auth, vendas, caixa, backup, auditoria) mas **não tocam a UI React**. Ninguém clicou através do app desde que `db.js` foi reescrito. Golden path sugerido para sanity check manual:
+- Login `admin` / `admin123`
+- Produtos: cadastrar com `num_variacoes=3`, confirmar 3 SKUs gerados com barcodes únicos
+- Estoque: editar tamanho/cor, movimentar entrada/saída
+- PDV: ringar venda cartão crédito 3x, conferir taxa aplicada + cupom impresso
+- Vendas: cancelar venda com motivo + senha admin → conferir retorno ao estoque
+- Fechamento de caixa: abrir/fechar
+- Auditoria: validar cadeia (botão "Verificar")
+- Backup: export → restore, conferir que dados voltam
+
+### 5. Migração `.jsx` → `.tsx` (pensada pro futuro, baixa prioridade)
+Hoje só `src/api/*.ts` usa tipos. As páginas (`PDV.jsx`, `Vendas.jsx` etc.) continuam JS puro. Converter traria autocomplete completo no editor e checagem de props de componentes, mas é refactor grande (~2 mil linhas) com ganho marginal dado que:
+- Runtime já valida inputs via Zod
+- `window.api` está tipado para consumers TS
+- Backend retorna shapes tipados via `src/api/vendas.ts` etc.
+
+Só considerar se começar a aparecer bug frontend de shape/null.
