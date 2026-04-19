@@ -9,7 +9,7 @@
     "electron:dev": "vite",
     "electron:build": "vite build && electron-builder",
     "preview": "vite preview",
-    "electron:preview": "npm run build && electron ./electron/main.js",
+    "electron:preview": "npm run build && cross-env PDV_PREVIEW=1 electron ./electron/main.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "ci": "npm run typecheck && npm test"
@@ -29,6 +29,7 @@
     "@types/node": "^25.6.0",
     "@vitejs/plugin-react": "^4.3.0",
     "concurrently": "^9.1.0",
+    "cross-env": "^10.1.0",
     "electron": "^33.0.0",
     "electron-builder": "^25.1.0",
     "react": "^18.3.0",

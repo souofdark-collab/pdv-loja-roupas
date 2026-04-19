@@ -22,10 +22,14 @@ function createWindow() {
     }
   });
 
-  if (!app.isPackaged) {
-    mainWindow.loadURL('http://localhost:5173');
-  } else {
+  // Em dev (vite :5173) carregamos do HMR. Em preview (`electron:preview` com
+  // env PDV_PREVIEW=1) ou no build empacotado, servimos o dist/ pelo próprio
+  // Express :3001.
+  const usePreviewBundle = app.isPackaged || process.env.PDV_PREVIEW === '1';
+  if (usePreviewBundle) {
     mainWindow.loadURL(`http://localhost:${API_PORT}`);
+  } else {
+    mainWindow.loadURL('http://localhost:5173');
   }
 }
 
