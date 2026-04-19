@@ -486,6 +486,6 @@ Regressão da regra crítica de dialogs. Substituído por `useModal().showAlert`
 | B1 | ✅ | `tsconfig.json` com `strict: true`, `allowJs: true`, `noEmit: true`, `module/moduleResolution: node16`. Deps: `typescript@6`, `@types/node`, `@types/express`, `zod`. Script `npm run typecheck`. Path alias `@shared/*`. |
 | B2 | ✅ | `shared/types.ts` — interfaces derivadas de `001_initial.sql` para todas as 19 tabelas + `TableMap`/`Row<T>`/`InsertInput<T>`/`UpdateInput<T>` para generics no db. |
 | B3 | ✅ | `electron/api/db.d.ts` — tipa o módulo CJS existente com generics (`select<T>`, `insert<T>`, `findOne<T>` etc.). Zero mudança de runtime. Consumers TS (e IDE) ganham autocomplete + checagem de colunas. |
-| B4 | 🟡 | `electron/api/validation.js` — schemas Zod para vendas, produtos, estoque mov, fiado, caixa. Middleware `validate()` + coerção `z.coerce.number()` para IDs string→number. Aplicado em `POST /vendas`, `PUT /vendas/:id`, `POST /produtos`. Resto das rotas pendente (estoque, fiado, caixa, trocas). |
+| B4 | ✅ | `electron/api/validation.js` — schemas Zod com coerção `z.coerce.number()` para IDs string→number. Middleware `validate()` responde 400 com `{error, issues}`. Aplicado em: `POST /vendas`, `PUT /vendas/:id`, `POST /produtos`, `POST /estoque/movimentacao`, `POST /fiado/pagamento`, `POST /caixa/abertura`. |
 | B5 | ⏳ | Frontend: `src/api/*.ts` wrappers de `window.api.*` tipados usando `@shared/types`. |
 | B6 | ⏳ | CI local — `npm run typecheck && npm test` antes de cada commit (opcional: pre-commit hook). |

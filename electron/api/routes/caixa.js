@@ -1,4 +1,5 @@
 const express = require('express');
+const { validate, CaixaAberturaSchema } = require('../validation');
 
 module.exports = (db) => {
   const router = express.Router();
@@ -26,7 +27,7 @@ module.exports = (db) => {
   });
 
   // Abrir caixa
-  router.post('/caixa/abertura', (req, res) => {
+  router.post('/caixa/abertura', validate(CaixaAberturaSchema), (req, res) => {
     const { usuario_id, valor_inicial, observacao } = req.body;
     // Fechar qualquer abertura em aberto
     db.select('abertura_caixa').filter(a => !a.fechado_em).forEach(a => {

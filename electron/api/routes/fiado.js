@@ -1,4 +1,5 @@
 const express = require('express');
+const { validate, FiadoPagamentoSchema } = require('../validation');
 
 module.exports = (db) => {
   const router = express.Router();
@@ -33,13 +34,12 @@ module.exports = (db) => {
     res.json({ vendas, pagamentos });
   });
 
-  router.post('/fiado/pagamento', (req, res) => {
+  router.post('/fiado/pagamento', validate(FiadoPagamentoSchema), (req, res) => {
     const { venda_id, valor, forma_pagamento, usuario_id, observacao } = req.body;
-    const venda = db.findOne('vendas', { id: Number(venda_id) });
+    const venda = db.findOne('vendas', { id: venda_id });
     if (!venda) return res.status(404).json({ error: 'Venda não encontrada' });
     if (!isFiado(venda.forma_pagamento)) return res.status(400).json({ error: 'Venda não é fiado' });
-    const valorNum = Number(valor);
-    if (!valorNum || valorNum <= 0) return res.status(400).json({ error: 'Valor inválido' });
+    const valorNum = valor;
     const saldoAtual = Number(venda.saldo_devedor || venda.total);
     if (valorNum > saldoAtual + 0.001) return res.status(400).json({ error: `Valor maior que saldo devedor (R$ ${saldoAtual.toFixed(2)})` });
 

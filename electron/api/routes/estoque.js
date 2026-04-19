@@ -1,4 +1,5 @@
 const express = require('express');
+const { validate, EstoqueMovimentacaoSchema } = require('../validation');
 
 module.exports = (db) => {
   const router = express.Router();
@@ -60,7 +61,7 @@ module.exports = (db) => {
     res.json({ success: true });
   });
 
-  router.post('/estoque/movimentacao', (req, res) => {
+  router.post('/estoque/movimentacao', validate(EstoqueMovimentacaoSchema), (req, res) => {
     const { estoque_id, tipo, quantidade, motivo, usuario_id } = req.body;
     const result = db.insert('estoque_movimentacoes', { estoque_id, tipo, quantidade, motivo: motivo || '', usuario_id: usuario_id || null, criado_em: new Date().toISOString() });
 
