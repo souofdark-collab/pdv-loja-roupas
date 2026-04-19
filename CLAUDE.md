@@ -479,13 +479,13 @@ Regressão da regra crítica de dialogs. Substituído por `useModal().showAlert`
 - TypeScript inicia agora (Fase B); strict apenas em arquivos novos/migrados.
 - Zod entra junto da fase B4 (rotas tipadas + validação runtime no mesmo commit).
 
-## Fase B — TypeScript (planejada)
+## Fase B — TypeScript (em andamento)
 
-| Fase | Descrição |
-|------|-----------|
-| B1 | `tsconfig.json` com `strict: true`, `allowJs: true` (coexistência). Instalar `typescript`, `@types/node`, `@types/express`, `zod`. Script `typecheck`. |
-| B2 | `shared/types.ts` — interfaces para todas as tabelas derivadas do schema SQL. Fonte única de verdade consumida por backend e frontend. |
-| B3 | `db.ts` (portar `db.js`) tipado — generics em `select<T>/insert<T>/update/delete` via map de tabelas. |
-| B4 | Rotas migradas para TS + schemas Zod em `body`/`params`/`query`. Começar por `vendas.ts` (mais crítica) e `produtos.ts`. |
-| B5 | Frontend: `src/api/*.ts` wrappers de `window.api.*` tipados usando `shared/types`. |
-| B6 | CI local — `npm run typecheck && npm test` antes de cada commit (opcional: pre-commit hook). |
+| Fase | Status | Descrição |
+|------|--------|-----------|
+| B1 | ✅ | `tsconfig.json` com `strict: true`, `allowJs: true`, `noEmit: true`, `module/moduleResolution: node16`. Deps: `typescript@6`, `@types/node`, `@types/express`, `zod`. Script `npm run typecheck`. Path alias `@shared/*`. |
+| B2 | ✅ | `shared/types.ts` — interfaces derivadas de `001_initial.sql` para todas as 19 tabelas + `TableMap`/`Row<T>`/`InsertInput<T>`/`UpdateInput<T>` para generics no db. |
+| B3 | ⏳ | Typar `db.js` via JSDoc ou portar para `db.ts`. Generics: `select<T extends TableName>(t: T, where?: Partial<Row<T>>): Row<T>[]`. |
+| B4 | ⏳ | Rotas migradas para TS + schemas Zod em `body`/`params`/`query`. Começar por `vendas.ts` (mais crítica) e `produtos.ts`. Requer runtime TS (tsx) ou build step. |
+| B5 | ⏳ | Frontend: `src/api/*.ts` wrappers de `window.api.*` tipados usando `@shared/types`. |
+| B6 | ⏳ | CI local — `npm run typecheck && npm test` antes de cada commit (opcional: pre-commit hook). |
