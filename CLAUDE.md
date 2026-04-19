@@ -17,6 +17,12 @@ npm run electron:build # build completo + instalador (electron-builder → relea
 
 # Testes (smoke tests — vitest + supertest)
 npm test
+
+# Typecheck (tsc --noEmit, strict em arquivos .ts)
+npm run typecheck
+
+# CI local: typecheck + tests (rodar antes de commits que mexem em rotas/db/tipos)
+npm run ci
 ```
 
 **Login padrão:** `admin` / `admin123`
@@ -479,7 +485,7 @@ Regressão da regra crítica de dialogs. Substituído por `useModal().showAlert`
 - TypeScript inicia agora (Fase B); strict apenas em arquivos novos/migrados.
 - Zod entra junto da fase B4 (rotas tipadas + validação runtime no mesmo commit).
 
-## Fase B — TypeScript (em andamento)
+## Fase B — TypeScript (concluída)
 
 | Fase | Status | Descrição |
 |------|--------|-----------|
@@ -488,4 +494,4 @@ Regressão da regra crítica de dialogs. Substituído por `useModal().showAlert`
 | B3 | ✅ | `electron/api/db.d.ts` — tipa o módulo CJS existente com generics (`select<T>`, `insert<T>`, `findOne<T>` etc.). Zero mudança de runtime. Consumers TS (e IDE) ganham autocomplete + checagem de colunas. |
 | B4 | ✅ | `electron/api/validation.js` — schemas Zod com coerção `z.coerce.number()` para IDs string→number. Middleware `validate()` responde 400 com `{error, issues}`. Aplicado em: `POST /vendas`, `PUT /vendas/:id`, `POST /produtos`, `POST /estoque/movimentacao`, `POST /fiado/pagamento`, `POST /caixa/abertura`. |
 | B5 | ✅ | Frontend: `src/api/client.ts` (wrappers genéricos sobre `window.api` + types globais para `window.electron`) + módulos domain (`vendas.ts`, `produtos.ts`, `estoque.ts`) reusando `@shared/types`. `.jsx` existentes continuam funcionando; novos componentes/TS podem importar daqui. |
-| B6 | ⏳ | CI local — `npm run typecheck && npm test` antes de cada commit (opcional: pre-commit hook). |
+| B6 | ✅ | Script `npm run ci` roda typecheck + smoke tests em sequência. Rodar antes de commits que mexem em rotas, db, tipos ou schemas Zod. Hook git fica opcional (não instalado). |
