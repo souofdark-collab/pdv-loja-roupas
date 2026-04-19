@@ -123,7 +123,9 @@ pdv-loja-roupas/
 
 ## Banco de Dados
 
-**Localização:** `%APPDATA%\pdv-loja-roupas\<tabela>.json`
+> **Migração SQLite concluída** (2026-04-18). Todas as 8 etapas da Fase A prontas. Ver seção "Migração SQLite — Estado" no fim deste arquivo. Próxima fase é B (TypeScript).
+
+**Localização:** `%APPDATA%\pdv-loja-roupas\pdv.sqlite` (WAL + foreign_keys ON). JSON files legados renomeados para `*.json.pre-sqlite` após a migração one-shot.
 
 **Tabelas:**
 `usuarios`, `clientes`, `categorias`, `produtos`, `estoque`, `estoque_movimentacoes`, `vendas`, `venda_itens`, `promocoes`, `promocoes_regras`, `despesas_categorias`, `despesas`, `configuracoes`, `formas_pagamento`, `trocas`, `historico_precos`, `log_acoes`, `abertura_caixa`, `fiado_pagamentos`
@@ -139,8 +141,12 @@ db.findOne(table, where)
 db.insert(table, data)      // retorna { lastInsertRowid }
 db.update(table, id, data)
 db.delete(table, id)
-db._data[table]             // acesso direto (backup)
-db._save(table)             // persiste para JSON
+db._data[table]             // Proxy: getter = SELECT *; setter = DELETE+INSERT atômico (backup/restore)
+db._save(table)             // no-op (SQLite persiste sincronamente — mantido para compat)
+db._sqlite                  // handle raw better-sqlite3 — use para SQL direto em casos especiais
+db.transaction(fn)          // envelopa fn em transação SQLite (retorna função chamável)
+db.backupTo(path)           // online backup via sqlite.backup() — retorna Promise
+db.verifyAuditChain()       // valida cadeia SHA256 em log_acoes por id ASC
 ```
 
 **Atenção:** `db.findOne('usuarios', { login, ativo: 1 })` — `ativo` deve ser `1` (número), não `true`.
@@ -448,3 +454,38 @@ Raiz: `setSelectedVendedor(null)` era executado antes do recibo ser renderizado.
 
 ### `alert()` nativo reintroduzido em Vendas.jsx (RESOLVIDO — 2026-04-18)
 Regressão da regra crítica de dialogs. Substituído por `useModal().showAlert`.
+
+---
+
+## Migração SQLite — Estado
+
+**Fase A (SQLite) — 100% concluída em 2026-04-18.** Dados reais (274 registros, 18 tabelas) migrados com sucesso em dry-run; cadeia de auditoria validada em 88 entradas (ok=true). Todos os 14 smoke tests passam.
+
+| Fase | Status | Descrição |
+|------|--------|-----------|
+| A1 | ✅ | `better-sqlite3` instalado; `electron/api/migrations/001_initial.sql` (19 tabelas + FKs + índices). |
+| A2 | ✅ | `electron/api/migrator.js` — aplica `migrations/NNN_*.sql` pendentes em transação, rastreia em `schema_migrations`. |
+| A3 | ✅ | `db.js` reescrito com `better-sqlite3`. Mesma API (`select/findOne/insert/update/delete`). `_data` é Proxy (getter retorna SELECT *; setter faz DELETE+INSERT com FKs off). `_save` virou no-op. Novo: `db._sqlite` (raw handle), `db.transaction(fn)`, `db.backupTo(path)`. |
+| A4 | ✅ | `POST /vendas` envelopado em `db.transaction()` (venda + itens + baixa estoque + movimentações + log atômicos). `POST /produtos` valida todos os barcodes antes de entrar na transação (fail fast). |
+| A5 | ✅ | `electron/api/json-migration.js` — one-shot. Dispara quando `*.json` existe E todas as tabelas SQLite estão vazias. Importa na ordem de FKs (usuarios → clientes → produtos → estoque → vendas → venda_itens etc.), coerce `INT_FIELDS` (`categoria_id` "1" → 1), renomeia `.json` → `.json.pre-sqlite` como safety net. |
+| A6 | ✅ | `insertLogAcao` usa `sqlite.transaction()` para serializar hash-chain. Insere com nonce random, lê `lastInsertRowid`, computa hash com `id` real, UPDATE final. `verifyAuditChain()` lê via `SELECT ... ORDER BY id ASC`. Migração re-sela cadeia em ordem de `id` (o JSON legado salvava em ordem de array). |
+| A7 | ✅ | Backup restore mantém formato JSON wire (Proxy setter DELETE+INSERT). Auto-backup em `backups-auto/` agora grava **`pdv.sqlite` online + `snapshot.json`**; retém últimos 7. |
+| A8 | ✅ | 14 smoke tests passando (12 originais + rollback de venda com estoque inexistente + FK órfã em venda_itens). Teste de adulteração atualizado para mutar via `db._sqlite` (Proxy retorna cópias). |
+
+**Decisões tomadas:**
+- Driver: `better-sqlite3` (síncrono, prebuilt Windows, integra bem com Electron).
+- Fallback de backup em JSON mantido para debug manual (ambos `.sqlite` + `snapshot.json` em cada backup).
+- Importante: `PRAGMA foreign_keys` é **silenciosamente ignorado dentro de transações**. O Proxy setter toggle FKs off **antes** de abrir a transação e on depois (em `finally`).
+- TypeScript inicia agora (Fase B); strict apenas em arquivos novos/migrados.
+- Zod entra junto da fase B4 (rotas tipadas + validação runtime no mesmo commit).
+
+## Fase B — TypeScript (planejada)
+
+| Fase | Descrição |
+|------|-----------|
+| B1 | `tsconfig.json` com `strict: true`, `allowJs: true` (coexistência). Instalar `typescript`, `@types/node`, `@types/express`, `zod`. Script `typecheck`. |
+| B2 | `shared/types.ts` — interfaces para todas as tabelas derivadas do schema SQL. Fonte única de verdade consumida por backend e frontend. |
+| B3 | `db.ts` (portar `db.js`) tipado — generics em `select<T>/insert<T>/update/delete` via map de tabelas. |
+| B4 | Rotas migradas para TS + schemas Zod em `body`/`params`/`query`. Começar por `vendas.ts` (mais crítica) e `produtos.ts`. |
+| B5 | Frontend: `src/api/*.ts` wrappers de `window.api.*` tipados usando `shared/types`. |
+| B6 | CI local — `npm run typecheck && npm test` antes de cada commit (opcional: pre-commit hook). |

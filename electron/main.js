@@ -74,14 +74,24 @@ function scheduleAutoBackup() {
   const DATA_DIR = path.join(process.env.APPDATA || process.env.HOME, 'pdv-loja-roupas');
   const BACKUP_DIR = path.join(DATA_DIR, 'backups-auto');
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const db = require('./api/db');
 
-  const doBackup = () => {
+  const doBackup = async () => {
     try {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const dest = path.join(BACKUP_DIR, `backup-auto-${stamp}`);
       fs.mkdirSync(dest, { recursive: true });
-      const files = fs.readdirSync(DATA_DIR).filter(f => f.endsWith('.json'));
-      files.forEach(f => fs.copyFileSync(path.join(DATA_DIR, f), path.join(dest, f)));
+
+      // Primary: online SQLite backup (safe even while the DB is in use).
+      await db.backupTo(path.join(dest, 'pdv.sqlite'));
+
+      // Secondary: JSON snapshot of every table, for debug and manual inspection.
+      const snapshot = {};
+      for (const table of Object.keys(db._data)) {
+        snapshot[table] = db._data[table];
+      }
+      fs.writeFileSync(path.join(dest, 'snapshot.json'), JSON.stringify(snapshot, null, 2));
+
       // Keep only last 7 auto backups
       const existing = fs.readdirSync(BACKUP_DIR).sort();
       if (existing.length > 7) {

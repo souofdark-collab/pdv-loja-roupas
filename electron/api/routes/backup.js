@@ -13,14 +13,16 @@ const ALL_TABLES = [
   'venda_itens', 'promocoes', 'promocoes_regras',
   'despesas_categorias', 'despesas',
   'configuracoes', 'formas_pagamento',
-  'trocas', 'historico_precos', 'log_acoes', 'abertura_caixa'
+  'trocas', 'historico_precos', 'log_acoes', 'abertura_caixa',
+  'fiado_pagamentos'
 ];
 
 const WIPE_TABLES = [
   'clientes', 'categorias', 'produtos', 'estoque', 'estoque_movimentacoes',
   'vendas', 'venda_itens', 'promocoes', 'promocoes_regras',
   'despesas_categorias', 'despesas', 'formas_pagamento',
-  'trocas', 'historico_precos', 'log_acoes', 'abertura_caixa'
+  'trocas', 'historico_precos', 'log_acoes', 'abertura_caixa',
+  'fiado_pagamentos'
 ];
 
 
@@ -47,10 +49,14 @@ module.exports = (db) => {
       }
     }
     try {
+      // Each Proxy-set is atomic per table (DELETE+INSERT) and toggles FKs off
+      // internally. A single outer transaction wouldn't help because PRAGMA
+      // foreign_keys is silently ignored inside a transaction — so we accept
+      // non-atomicity across tables here. If one table fails mid-restore, the
+      // admin re-runs the import (operation is idempotent).
       for (const table of ALL_TABLES) {
         if (!data[table] || !Array.isArray(data[table])) continue;
         db._data[table] = data[table];
-        db._save(table);
       }
       res.json({ success: true, integrity_verified: !!integrity });
     } catch (err) {
@@ -76,12 +82,10 @@ module.exports = (db) => {
     // Wipe all data tables
     for (const table of WIPE_TABLES) {
       db._data[table] = [];
-      db._save(table);
     }
 
     // Keep only the original admin user
     db._data.usuarios = db._data.usuarios.filter(u => u.id === admins[0].id);
-    db._save('usuarios');
 
     res.json({ success: true });
   });

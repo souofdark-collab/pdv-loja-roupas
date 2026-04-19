@@ -63,12 +63,14 @@ module.exports = (db) => {
   };
 
   router.post('/produtos', (req, res) => {
-    const { nome, descricao, preco_custo, preco_venda, codigo_barras, num_variacoes, categoria_id } = req.body;
+    const { nome, descricao, preco_custo, preco_venda, codigo_barras, num_variacoes, categoria_id, usuario_id: uid } = req.body;
     const qtd = Math.max(1, Number(num_variacoes) || 1);
     const now = new Date().toISOString();
-    const created = [];
-    const usados = new Set();
 
+    // Generate and validate all barcodes up-front so we can fail fast before
+    // opening a transaction (barcode conflict → 400, no partial writes).
+    const usados = new Set();
+    const barcodes = [];
     for (let i = 0; i < qtd; i++) {
       const bc = (i === 0 && codigo_barras) ? codigo_barras : genUniqueBarcode(usados);
       if (bc) {
@@ -76,21 +78,39 @@ module.exports = (db) => {
         if (dup) return res.status(400).json({ error: `Código de barras "${bc}" já cadastrado no produto "${dup.nome}"` });
         usados.add(bc);
       }
-      const result = db.insert('produtos', { nome, descricao: descricao || '', preco_custo: preco_custo || 0, preco_venda: preco_venda || 0, codigo_barras: bc, categoria_id: categoria_id || null, ativo: 1, criado_em: now });
-      const produtoId = result.lastInsertRowid;
-      db.insert('estoque', { produto_id: produtoId, tamanho: '', cor: '', quantidade: 0, minimo: 5, codigo_barras: bc });
-      created.push(produtoId);
+      barcodes.push(bc);
     }
-    const { usuario_id: uid } = req.body;
-    if (uid) {
-      db.insert('log_acoes', {
-        usuario_id: uid,
-        usuario_nome: (db.findOne('usuarios', { id: uid }) || {}).nome || '',
-        acao: 'Produto Cadastrado',
-        detalhes: `${nome} | R$ ${preco_venda} | ${qtd} unidade(s)`,
-        criado_em: now
-      });
-    }
+
+    // All inserts in one transaction: if any fails the whole batch rolls back.
+    const commitBatch = db.transaction(() => {
+      const ids = [];
+      for (const bc of barcodes) {
+        const result = db.insert('produtos', {
+          nome, descricao: descricao || '',
+          preco_custo: preco_custo || 0, preco_venda: preco_venda || 0,
+          codigo_barras: bc, categoria_id: categoria_id || null,
+          ativo: 1, criado_em: now
+        });
+        const produtoId = result.lastInsertRowid;
+        db.insert('estoque', {
+          produto_id: produtoId, tamanho: '', cor: '',
+          quantidade: 0, minimo: 5, codigo_barras: bc
+        });
+        ids.push(produtoId);
+      }
+      if (uid) {
+        db.insert('log_acoes', {
+          usuario_id: uid,
+          usuario_nome: (db.findOne('usuarios', { id: uid }) || {}).nome || '',
+          acao: 'Produto Cadastrado',
+          detalhes: `${nome} | R$ ${preco_venda} | ${qtd} unidade(s)`,
+          criado_em: now
+        });
+      }
+      return ids;
+    });
+
+    const created = commitBatch();
     res.json({ ids: created, count: qtd, nome });
   });
 

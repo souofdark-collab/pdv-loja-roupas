@@ -125,53 +125,62 @@ module.exports = (db) => {
     const valor_liquido = Number((total - valor_taxa_cartao).toFixed(2));
 
     const now = new Date().toISOString();
-    const result = db.insert('vendas', {
-      cliente_id: cliente_id || null, usuario_id, vendedor_id: vendedor_id || null,
-      subtotal, desconto: descontoVal, total, forma_pagamento,
-      parcelas: parcelas || null,
-      taxa_cartao_pct, valor_taxa_cartao, valor_liquido,
-      saldo_devedor: isFiado ? total : 0,
-      status: 'finalizada', data: now
-    });
 
-    const vendaId = result.lastInsertRowid;
-
-    for (const item of itens) {
-      const estItemForInsert = db.findOne('estoque', { id: item.estoque_id }) || {};
-      db.insert('venda_itens', {
-        venda_id: vendaId,
-        produto_id: item.produto_id,
-        estoque_id: item.estoque_id,
-        quantidade: item.quantidade,
-        preco_unitario: item.preco_unitario,
-        desconto_item: item.desconto_item || 0,
-        tamanho: estItemForInsert.tamanho || '',
-        cor: estItemForInsert.cor || ''
+    // All persistence happens in one SQLite transaction: if any step fails,
+    // nothing is written (no orphan vendas, no double-debit of estoque).
+    const commitSale = db.transaction(() => {
+      const result = db.insert('vendas', {
+        cliente_id: cliente_id || null, usuario_id, vendedor_id: vendedor_id || null,
+        subtotal, desconto: descontoVal, total, forma_pagamento,
+        parcelas: parcelas || null,
+        taxa_cartao_pct, valor_taxa_cartao, valor_liquido,
+        saldo_devedor: isFiado ? total : 0,
+        status: 'finalizada', data: now
       });
 
-      const estoqueItem = db.findOne('estoque', { id: item.estoque_id });
-      if (estoqueItem) {
-        db.update('estoque', item.estoque_id, { quantidade: estoqueItem.quantidade - item.quantidade });
+      const vendaId = result.lastInsertRowid;
+
+      for (const item of itens) {
+        const estItemForInsert = db.findOne('estoque', { id: item.estoque_id }) || {};
+        db.insert('venda_itens', {
+          venda_id: vendaId,
+          produto_id: item.produto_id,
+          estoque_id: item.estoque_id,
+          quantidade: item.quantidade,
+          preco_unitario: item.preco_unitario,
+          desconto_item: item.desconto_item || 0,
+          tamanho: estItemForInsert.tamanho || '',
+          cor: estItemForInsert.cor || ''
+        });
+
+        const estoqueItem = db.findOne('estoque', { id: item.estoque_id });
+        if (estoqueItem) {
+          db.update('estoque', item.estoque_id, { quantidade: estoqueItem.quantidade - item.quantidade });
+        }
+
+        db.insert('estoque_movimentacoes', {
+          estoque_id: item.estoque_id,
+          tipo: 'saida',
+          quantidade: item.quantidade,
+          motivo: `Venda #${vendaId}`,
+          usuario_id,
+          criado_em: now
+        });
       }
 
-      db.insert('estoque_movimentacoes', {
-        estoque_id: item.estoque_id,
-        tipo: 'saida',
-        quantidade: item.quantidade,
-        motivo: `Venda #${vendaId}`,
+      const u = db.findOne('usuarios', { id: usuario_id });
+      db.insert('log_acoes', {
         usuario_id,
+        usuario_nome: u ? u.nome : 'Desconhecido',
+        acao: 'Nova Venda',
+        detalhes: `Venda #${vendaId} | Total: R$ ${total.toFixed(2)} | ${itens.length} item(s) | ${forma_pagamento}`,
         criado_em: now
       });
-    }
 
-    const u = db.findOne('usuarios', { id: usuario_id });
-    db.insert('log_acoes', {
-      usuario_id,
-      usuario_nome: u ? u.nome : 'Desconhecido',
-      acao: 'Nova Venda',
-      detalhes: `Venda #${vendaId} | Total: R$ ${total.toFixed(2)} | ${itens.length} item(s) | ${forma_pagamento}`,
-      criado_em: now
+      return vendaId;
     });
+
+    const vendaId = commitSale();
 
     // Return full sale data
     const venda = db.findOne('vendas', { id: vendaId });

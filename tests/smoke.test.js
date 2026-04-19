@@ -103,6 +103,45 @@ describe('Fluxo de venda', () => {
   });
 });
 
+describe('Atomicidade SQLite', () => {
+  it('rollback: item com estoque_id inexistente nao grava nada', async () => {
+    const { produto_id, estoque_id } = await seedProdutoComEstoque({ qtd: 5, preco: 50 });
+    const vendasAntes = db.select('vendas').length;
+    const movAntes = db.select('estoque_movimentacoes').length;
+    const estoqueAntes = db.findOne('estoque', { id: estoque_id }).quantidade;
+
+    // Second item references an estoque_id that doesn't exist. The pre-transaction
+    // validation in vendas.js catches it with 400 before any write happens.
+    const res = await request(api).post('/api/vendas').send({
+      usuario_id: 1,
+      forma_pagamento: 'Dinheiro',
+      itens: [
+        { produto_id, estoque_id, quantidade: 1, preco_unitario: 50 },
+        { produto_id, estoque_id: 999999, quantidade: 1, preco_unitario: 50 }
+      ]
+    });
+    expect(res.status).toBe(400);
+
+    // Nothing leaked: no venda, no movement, no stock change.
+    expect(db.select('vendas').length).toBe(vendasAntes);
+    expect(db.select('estoque_movimentacoes').length).toBe(movAntes);
+    expect(db.findOne('estoque', { id: estoque_id }).quantidade).toBe(estoqueAntes);
+  });
+
+  it('FK impede venda_itens orfao', () => {
+    // Attempting to insert a venda_itens referencing a non-existent venda_id
+    // should fail at the SQLite FK layer.
+    expect(() => {
+      db.insert('venda_itens', {
+        venda_id: 999999,
+        produto_id: 1,
+        quantidade: 1,
+        preco_unitario: 10
+      });
+    }).toThrow(/FOREIGN KEY/i);
+  });
+});
+
 describe('Cancelamento de venda', () => {
   it('cancela com motivo e registra log', async () => {
     const { produto_id, estoque_id } = await seedProdutoComEstoque();
@@ -174,12 +213,14 @@ describe('Cadeia de auditoria', () => {
   });
 
   it('detecta violação ao alterar log manualmente', () => {
-    const logs = db._data.log_acoes;
-    if (logs.length === 0) return;
-    const saved = { ...logs[0] };
-    logs[0].detalhes = 'VIOLADO';
+    const first = db._data.log_acoes[0];
+    if (!first) return;
+    // Tamper directly via SQL — Proxy getter returns detached copies in SQLite mode,
+    // so in-memory mutations won't be seen by verifyAuditChain.
+    db._sqlite.prepare('UPDATE log_acoes SET detalhes = ? WHERE id = ?').run('VIOLADO', first.id);
     const result = db.verifyAuditChain();
     expect(result.ok).toBe(false);
-    logs[0] = saved;
+    // Restore so subsequent tests don't inherit the tampered chain.
+    db._sqlite.prepare('UPDATE log_acoes SET detalhes = ? WHERE id = ?').run(first.detalhes, first.id);
   });
 });
