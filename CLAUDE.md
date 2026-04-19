@@ -487,5 +487,5 @@ Regressão da regra crítica de dialogs. Substituído por `useModal().showAlert`
 | B2 | ✅ | `shared/types.ts` — interfaces derivadas de `001_initial.sql` para todas as 19 tabelas + `TableMap`/`Row<T>`/`InsertInput<T>`/`UpdateInput<T>` para generics no db. |
 | B3 | ✅ | `electron/api/db.d.ts` — tipa o módulo CJS existente com generics (`select<T>`, `insert<T>`, `findOne<T>` etc.). Zero mudança de runtime. Consumers TS (e IDE) ganham autocomplete + checagem de colunas. |
 | B4 | ✅ | `electron/api/validation.js` — schemas Zod com coerção `z.coerce.number()` para IDs string→number. Middleware `validate()` responde 400 com `{error, issues}`. Aplicado em: `POST /vendas`, `PUT /vendas/:id`, `POST /produtos`, `POST /estoque/movimentacao`, `POST /fiado/pagamento`, `POST /caixa/abertura`. |
-| B5 | ⏳ | Frontend: `src/api/*.ts` wrappers de `window.api.*` tipados usando `@shared/types`. |
+| B5 | ✅ | Frontend: `src/api/client.ts` (wrappers genéricos sobre `window.api` + types globais para `window.electron`) + módulos domain (`vendas.ts`, `produtos.ts`, `estoque.ts`) reusando `@shared/types`. `.jsx` existentes continuam funcionando; novos componentes/TS podem importar daqui. |
 | B6 | ⏳ | CI local — `npm run typecheck && npm test` antes de cada commit (opcional: pre-commit hook). |
