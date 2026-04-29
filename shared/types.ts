@@ -48,6 +48,15 @@ export interface Produto {
   categoria_id: number | null;
   ativo: SqliteBool;
   criado_em: IsoDate | null;
+  // Campos fiscais (Fase 1 NFC-e). NCM sem default; demais usam defaults do schema.
+  ncm: string | null;
+  cest: string | null;
+  cfop: string | null;
+  origem_mercadoria: number | null;
+  csosn: string | null;
+  unidade_comercial: string | null;
+  pis_cst: string | null;
+  cofins_cst: string | null;
 }
 
 export interface Estoque {
@@ -225,6 +234,41 @@ export interface FiadoPagamento {
   criado_em: IsoDate | null;
 }
 
+export type NotaFiscalTipo = 'NFCe' | 'NFe';
+export type NotaFiscalStatus =
+  | 'processando'
+  | 'autorizada'
+  | 'rejeitada'
+  | 'cancelada'
+  | 'denegada'
+  | 'erro';
+export type NotaFiscalAmbiente = 1 | 2; // 1 = produção, 2 = homologação
+
+export interface NotaFiscal {
+  id: number;
+  venda_id: number;
+  tipo: NotaFiscalTipo;
+  ambiente: NotaFiscalAmbiente;
+  status: NotaFiscalStatus;
+  ref_externa: string | null;
+  numero: number | null;
+  serie: number | null;
+  chave: string | null;
+  protocolo: string | null;
+  data_emissao: IsoDate | null;
+  data_autorizacao: IsoDate | null;
+  data_cancelamento: IsoDate | null;
+  motivo_rejeicao: string | null;
+  motivo_cancelamento: string | null;
+  url_danfce: string | null;
+  url_xml: string | null;
+  qrcode_url: string | null;
+  payload_enviado: string | null;
+  resposta_focus: string | null;
+  usuario_id: number | null;
+  criado_em: IsoDate;
+}
+
 // Map nome-da-tabela → tipo da linha. Usado como fonte de verdade para
 // generics no db.ts (ex.: db.select<'produtos'>() retorna Produto[]).
 export interface TableMap {
@@ -247,6 +291,7 @@ export interface TableMap {
   log_acoes: LogAcao;
   abertura_caixa: AberturaCaixa;
   fiado_pagamentos: FiadoPagamento;
+  notas_fiscais: NotaFiscal;
 }
 
 export type TableName = keyof TableMap;

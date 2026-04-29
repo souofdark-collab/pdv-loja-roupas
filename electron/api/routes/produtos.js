@@ -1,6 +1,25 @@
 const express = require('express');
 const { validate, ProdutoCreateSchema, ProdutoUpdateSchema } = require('../validation');
 
+// Campos fiscais propagados em POST/PUT — Fase 1 NFC-e. Lista canônica para
+// evitar dispersão entre rotas conforme a feature evolui.
+const PRODUTO_FISCAL_KEYS = [
+  'ncm', 'cest', 'cfop', 'origem_mercadoria',
+  'csosn', 'unidade_comercial', 'pis_cst', 'cofins_cst'
+];
+
+// Empty-string → null para colunas fiscais que vêm vazias do form quando
+// o usuário não preencheu. Mantém defaults do schema para campos ausentes.
+function pickFiscal(body) {
+  const out = {};
+  for (const key of PRODUTO_FISCAL_KEYS) {
+    if (body[key] === undefined) continue;
+    const v = body[key];
+    out[key] = (v === '' ? null : v);
+  }
+  return out;
+}
+
 module.exports = (db) => {
   const router = express.Router();
 
@@ -67,6 +86,7 @@ module.exports = (db) => {
     const { nome, descricao, preco_custo, preco_venda, codigo_barras, num_variacoes, categoria_id, usuario_id: uid } = req.body;
     const qtd = num_variacoes;
     const now = new Date().toISOString();
+    const fiscal = pickFiscal(req.body);
 
     // Generate and validate all barcodes up-front so we can fail fast before
     // opening a transaction (barcode conflict → 400, no partial writes).
@@ -90,7 +110,8 @@ module.exports = (db) => {
           nome, descricao: descricao || '',
           preco_custo: preco_custo || 0, preco_venda: preco_venda || 0,
           codigo_barras: bc, categoria_id: categoria_id || null,
-          ativo: 1, criado_em: now
+          ativo: 1, criado_em: now,
+          ...fiscal
         });
         const produtoId = result.lastInsertRowid;
         db.insert('estoque', {
@@ -115,21 +136,25 @@ module.exports = (db) => {
     res.json({ ids: created, count: qtd, nome });
   });
 
-  router.put('/produtos/:id', (req, res) => {
+  router.put('/produtos/:id', validate(ProdutoUpdateSchema), (req, res) => {
     const { nome, descricao, preco_custo, preco_venda, codigo_barras, categoria_id, ativo, usuario_id } = req.body;
     if (codigo_barras) {
       const dup = barcodeConflict(codigo_barras, Number(req.params.id));
       if (dup) return res.status(400).json({ error: `Código de barras já cadastrado no produto "${dup.nome}"` });
     }
     const atual = db.findOne('produtos', { id: Number(req.params.id) });
-    if (atual && (Number(preco_custo) !== Number(atual.preco_custo) || Number(preco_venda) !== Number(atual.preco_venda))) {
+    if (!atual) return res.status(404).json({ error: 'Produto não encontrado' });
+
+    const novoPrecoCusto = preco_custo !== undefined ? preco_custo : atual.preco_custo;
+    const novoPrecoVenda = preco_venda !== undefined ? preco_venda : atual.preco_venda;
+    if (Number(novoPrecoCusto) !== Number(atual.preco_custo) || Number(novoPrecoVenda) !== Number(atual.preco_venda)) {
       db.insert('historico_precos', {
         produto_id: Number(req.params.id),
         produto_nome: atual.nome,
         preco_custo_anterior: atual.preco_custo,
         preco_venda_anterior: atual.preco_venda,
-        preco_custo_novo: preco_custo,
-        preco_venda_novo: preco_venda,
+        preco_custo_novo: novoPrecoCusto,
+        preco_venda_novo: novoPrecoVenda,
         usuario_id: usuario_id || null,
         criado_em: new Date().toISOString()
       });
@@ -138,13 +163,19 @@ module.exports = (db) => {
           usuario_id,
           usuario_nome: (db.findOne('usuarios', { id: usuario_id }) || {}).nome || '',
           acao: 'Alteração de Preço',
-          detalhes: `${atual.nome}: R$ ${atual.preco_venda} → R$ ${preco_venda}`,
+          detalhes: `${atual.nome}: R$ ${atual.preco_venda} → R$ ${novoPrecoVenda}`,
           criado_em: new Date().toISOString()
         });
       }
     }
-    db.update('produtos', req.params.id, { nome, descricao: descricao || '', preco_custo, preco_venda, codigo_barras: codigo_barras || '', categoria_id, ativo: ativo !== undefined ? ativo : 1 });
-    res.json({ id: Number(req.params.id), ...req.body });
+    const updateData = {};
+    for (const key of ['nome', 'descricao', 'preco_custo', 'preco_venda', 'codigo_barras', 'categoria_id']) {
+      if (req.body[key] !== undefined) updateData[key] = req.body[key];
+    }
+    if (ativo !== undefined) updateData.ativo = typeof ativo === 'boolean' ? (ativo ? 1 : 0) : ativo;
+    Object.assign(updateData, pickFiscal(req.body));
+    db.update('produtos', req.params.id, updateData);
+    res.json(db.findOne('produtos', { id: Number(req.params.id) }));
   });
 
   router.delete('/produtos/:id', (req, res) => {

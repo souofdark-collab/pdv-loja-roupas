@@ -3,6 +3,12 @@ import Auditoria from './Auditoria';
 import Backup from './Backup';
 import { useModal } from '../components/Modal';
 
+const ETIQUETA_DEFAULT = { largura: 50, altura: 30, margem: 1.2, barcodeAltura: 10, modelo: 'completo' };
+const numberOrDefault = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 export default function Configuracoes({ user }) {
   const [tab, setTab] = useState('empresa');
   const [configs, setConfigs] = useState(null);
@@ -13,11 +19,21 @@ export default function Configuracoes({ user }) {
   const [editingPag, setEditingPag] = useState(null);
   const [impressoras, setImpressoras] = useState([]);
   const [loadingImpressoras, setLoadingImpressoras] = useState(false);
+  const [produtosSemNcm, setProdutosSemNcm] = useState(null);
   const { showAlert, askConfirm, modalEl } = useModal();
 
   useEffect(() => {
     loadData();
   }, []);
+
+  // Lista de produtos sem NCM é só interessante na aba Fiscal — carrega sob demanda
+  // pra não pesar no mount geral da tela de Configurações.
+  useEffect(() => {
+    if (tab !== 'fiscal' || produtosSemNcm !== null) return;
+    window.api.get('/api/produtos').then(produtos => {
+      setProdutosSemNcm(produtos.filter(p => !p.ncm));
+    });
+  }, [tab, produtosSemNcm]);
 
   const loadData = () => {
     window.api.get('/api/configuracoes').then(data => {
@@ -148,6 +164,26 @@ export default function Configuracoes({ user }) {
     });
   };
 
+  const getEtiquetaConfig = () => {
+    try {
+      const parsed = JSON.parse(configs.etiqueta_config || '{}') || {};
+      return {
+        largura: numberOrDefault(parsed.largura, ETIQUETA_DEFAULT.largura),
+        altura: numberOrDefault(parsed.altura, ETIQUETA_DEFAULT.altura),
+        margem: numberOrDefault(parsed.margem, ETIQUETA_DEFAULT.margem),
+        barcodeAltura: numberOrDefault(parsed.barcodeAltura, ETIQUETA_DEFAULT.barcodeAltura),
+        modelo: parsed.modelo || ETIQUETA_DEFAULT.modelo
+      };
+    } catch {
+      return ETIQUETA_DEFAULT;
+    }
+  };
+
+  const setEtiquetaConfig = (patch) => {
+    const next = { ...getEtiquetaConfig(), ...patch };
+    setConfigs({ ...configs, etiqueta_config: JSON.stringify(next) });
+  };
+
   if (!configs) return <div>Carregando...</div>;
 
   return (
@@ -161,6 +197,7 @@ export default function Configuracoes({ user }) {
           { id: 'tema', label: 'Tema e Cores' },
           { id: 'pagamentos', label: 'Formas de Pagamento' },
           { id: 'taxas_cartao', label: 'Taxas Cartão' },
+          { id: 'fiscal', label: 'Fiscal' },
           { id: 'operacional', label: 'Operacional' },
           { id: 'impressora', label: 'Impressora' },
           { id: 'auditoria', label: 'Auditoria' },
@@ -526,7 +563,7 @@ export default function Configuracoes({ user }) {
                 ))}
               </div>
             </div>
-            <div style={{ marginTop: 24 }}>
+            <div style={{ marginTop: 24, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <button className="btn-success" onClick={async () => {
                 const clean = {};
                 for (const [k, v] of Object.entries(taxas)) {
@@ -536,14 +573,313 @@ export default function Configuracoes({ user }) {
                 await window.api.put('/api/configuracoes', { taxas_cartao: JSON.stringify(clean) });
                 showAlert('Taxas salvas!');
               }}>Salvar</button>
+
+              <button className="btn-secondary" onClick={() => {
+                askConfirm(
+                  'Aplicar as taxas atuais em todas as vendas já registradas? Esta ação é única — novas alterações de taxa depois disso só afetarão vendas futuras.',
+                  async () => {
+                    try {
+                      const r = await window.api.post('/api/configuracoes/recalc-taxas-vendas', {
+                        usuario_id: user?.id,
+                        usuario_nome: user?.nome
+                      });
+                      showAlert(`Recálculo concluído.\n\nVendas alteradas: ${r.alteradas}\nVendas inalteradas: ${r.inalteradas}\nTotal verificado: ${r.total}`);
+                    } catch (err) {
+                      showAlert('Falha ao recalcular: ' + (err?.message || 'erro desconhecido'));
+                    }
+                  },
+                  { title: 'Recalcular taxas nas vendas existentes', confirmLabel: 'Aplicar agora' }
+                );
+              }}>Aplicar taxas atuais em vendas existentes</button>
             </div>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 10 }}>
+              O botão ao lado recalcula retroativamente o valor da taxa e o líquido de todas as vendas já registradas usando os percentuais atuais. Use-o apenas quando quiser sincronizar o histórico — vendas normais continuam guardando a taxa vigente no momento da venda.
+            </p>
           </div>
         );
       })()}
 
+      {tab === 'fiscal' && configs && (
+        <div className="card">
+          <h3 style={{ marginBottom: 16 }}>Dados Fiscais da Empresa</h3>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Inscrição Estadual</label>
+              <input value={configs.empresa_ie || ''}
+                onChange={e => setConfigs({ ...configs, empresa_ie: e.target.value.replace(/\D/g, '') })}
+                placeholder="Apenas números" />
+            </div>
+            <div className="form-group">
+              <label>Inscrição Municipal (opcional)</label>
+              <input value={configs.empresa_im || ''}
+                onChange={e => setConfigs({ ...configs, empresa_im: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Regime Tributário</label>
+              <select value={configs.empresa_regime_tributario || '1'}
+                onChange={e => setConfigs({ ...configs, empresa_regime_tributario: e.target.value })}>
+                <option value="1">1 - Simples Nacional</option>
+                <option value="2">2 - Simples Nacional (excesso sublimite)</option>
+                <option value="3">3 - Regime Normal (Presumido/Real)</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>CNAE Principal</label>
+              <input value={configs.empresa_cnae || ''}
+                onChange={e => setConfigs({ ...configs, empresa_cnae: e.target.value.replace(/\D/g, '').slice(0, 7) })}
+                placeholder="7 dígitos" maxLength={7} />
+            </div>
+          </div>
+
+          <h4 style={{ marginTop: 20, marginBottom: 12 }}>Endereço Fiscal</h4>
+          <div className="form-row">
+            <div className="form-group">
+              <label>UF</label>
+              <select value={configs.empresa_uf || 'SE'}
+                onChange={e => setConfigs({ ...configs, empresa_uf: e.target.value })}>
+                {['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'].map(uf => (
+                  <option key={uf} value={uf}>{uf}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>CEP</label>
+              <input value={configs.empresa_cep || ''}
+                onChange={e => setConfigs({ ...configs, empresa_cep: e.target.value.replace(/\D/g, '').slice(0, 8) })}
+                placeholder="00000000" maxLength={8} />
+            </div>
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>Município</label>
+              <input value={configs.empresa_municipio_nome || ''}
+                onChange={e => setConfigs({ ...configs, empresa_municipio_nome: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Código IBGE do Município</label>
+              <input value={configs.empresa_municipio_ibge || ''}
+                onChange={e => setConfigs({ ...configs, empresa_municipio_ibge: e.target.value.replace(/\D/g, '').slice(0, 7) })}
+                placeholder="7 dígitos" maxLength={7} />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group" style={{ flex: 3 }}>
+              <label>Logradouro</label>
+              <input value={configs.empresa_logradouro || ''}
+                onChange={e => setConfigs({ ...configs, empresa_logradouro: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Número</label>
+              <input value={configs.empresa_numero || ''}
+                onChange={e => setConfigs({ ...configs, empresa_numero: e.target.value })} />
+            </div>
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>Bairro</label>
+              <input value={configs.empresa_bairro || ''}
+                onChange={e => setConfigs({ ...configs, empresa_bairro: e.target.value })} />
+            </div>
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>Complemento</label>
+              <input value={configs.empresa_complemento || ''}
+                onChange={e => setConfigs({ ...configs, empresa_complemento: e.target.value })} />
+            </div>
+          </div>
+
+          <h4 style={{ marginTop: 24, marginBottom: 12 }}>Integração Focus NFe</h4>
+          <div className="form-row">
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>Token de Homologação</label>
+              <input type="password"
+                value={configs.nfce_focus_token_homolog || ''}
+                onChange={e => setConfigs({ ...configs, nfce_focus_token_homolog: e.target.value })}
+                placeholder="Token gerado no painel Focus NFe (ambiente teste)" />
+            </div>
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>Token de Produção</label>
+              <input type="password"
+                value={configs.nfce_focus_token_prod || ''}
+                onChange={e => setConfigs({ ...configs, nfce_focus_token_prod: e.target.value })}
+                placeholder="Token gerado no painel Focus NFe (ambiente real)" />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>CSC ID (Token Identificador)</label>
+              <input value={configs.nfce_csc_id || ''}
+                onChange={e => setConfigs({ ...configs, nfce_csc_id: e.target.value.replace(/\D/g, '') })}
+                placeholder="Ex: 000001" />
+            </div>
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>CSC Token (Código de Segurança do Contribuinte)</label>
+              <input type="password"
+                value={configs.nfce_csc_token || ''}
+                onChange={e => setConfigs({ ...configs, nfce_csc_token: e.target.value })}
+                placeholder="Hash gerado no portal SEFAZ" />
+            </div>
+            <div className="form-group">
+              <label>Série da NFC-e</label>
+              <input type="number" min="1" max="999"
+                value={configs.nfce_serie || '1'}
+                onChange={e => setConfigs({ ...configs, nfce_serie: e.target.value })} />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>Ambiente</label>
+              <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input type="radio" name="nfce_ambiente" value="2"
+                    checked={String(configs.nfce_ambiente || '2') === '2'}
+                    onChange={() => setConfigs({ ...configs, nfce_ambiente: '2' })} />
+                  Homologação (testes)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input type="radio" name="nfce_ambiente" value="1"
+                    checked={String(configs.nfce_ambiente || '2') === '1'}
+                    onChange={() => setConfigs({ ...configs, nfce_ambiente: '1' })} />
+                  Produção
+                </label>
+              </div>
+            </div>
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>Auto-emitir NFC-e ao finalizar venda</label>
+              <div style={{ marginTop: 6 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input type="checkbox"
+                    checked={String(configs.nfce_auto_emitir || '0') === '1'}
+                    onChange={e => setConfigs({ ...configs, nfce_auto_emitir: e.target.checked ? '1' : '0' })} />
+                  Emitir automaticamente após cada venda no PDV
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <h4 style={{ marginTop: 24, marginBottom: 12 }}>Status</h4>
+          <div style={{ background: 'var(--bg-main)', padding: 12, borderRadius: 6, fontSize: 13 }}>
+            {produtosSemNcm === null && <span style={{ color: 'var(--text-secondary)' }}>Carregando...</span>}
+            {produtosSemNcm !== null && produtosSemNcm.length === 0 && (
+              <span style={{ color: 'var(--success, #2da44e)' }}>Todos os produtos têm NCM preenchido.</span>
+            )}
+            {produtosSemNcm !== null && produtosSemNcm.length > 0 && (
+              <div>
+                <div style={{ color: '#d4a017', marginBottom: 8 }}>
+                  {produtosSemNcm.length} produto(s) sem NCM — não emitirão NFC-e até serem corrigidos:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 20, maxHeight: 120, overflowY: 'auto' }}>
+                  {produtosSemNcm.slice(0, 20).map(p => (
+                    <li key={p.id} style={{ color: 'var(--text-secondary)' }}>{p.nome}</li>
+                  ))}
+                  {produtosSemNcm.length > 20 && (
+                    <li style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                      e mais {produtosSemNcm.length - 20}...
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          <button className="btn-success" style={{ marginTop: 16 }} onClick={async () => {
+            const payload = {
+              empresa_ie: configs.empresa_ie || '',
+              empresa_im: configs.empresa_im || '',
+              empresa_regime_tributario: configs.empresa_regime_tributario || '1',
+              empresa_cnae: configs.empresa_cnae || '',
+              empresa_uf: configs.empresa_uf || 'SE',
+              empresa_cep: configs.empresa_cep || '',
+              empresa_municipio_nome: configs.empresa_municipio_nome || '',
+              empresa_municipio_ibge: configs.empresa_municipio_ibge || '',
+              empresa_logradouro: configs.empresa_logradouro || '',
+              empresa_numero: configs.empresa_numero || '',
+              empresa_bairro: configs.empresa_bairro || '',
+              empresa_complemento: configs.empresa_complemento || '',
+              nfce_focus_token_homolog: configs.nfce_focus_token_homolog || '',
+              nfce_focus_token_prod: configs.nfce_focus_token_prod || '',
+              nfce_csc_id: configs.nfce_csc_id || '',
+              nfce_csc_token: configs.nfce_csc_token || '',
+              nfce_serie: configs.nfce_serie || '1',
+              nfce_ambiente: configs.nfce_ambiente || '2',
+              nfce_auto_emitir: configs.nfce_auto_emitir || '0'
+            };
+            await window.api.put('/api/configuracoes', payload);
+            showAlert('Configurações fiscais salvas!');
+          }}>
+            Salvar Configurações Fiscais
+          </button>
+        </div>
+      )}
+
       {tab === 'operacional' && configs && (
         <div className="card">
           <h3 style={{ marginBottom: 16 }}>Configurações Operacionais</h3>
+          {(() => {
+            const etiqueta = getEtiquetaConfig();
+            return (
+              <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
+                <h4 style={{ marginBottom: 12 }}>Etiquetas</h4>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Largura da etiqueta (mm)</label>
+                    <input
+                      type="number"
+                      min="25"
+                      max="120"
+                      step="1"
+                      value={etiqueta.largura}
+                      onChange={e => setEtiquetaConfig({ largura: numberOrDefault(e.target.value, ETIQUETA_DEFAULT.largura) })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Altura da etiqueta (mm)</label>
+                    <input
+                      type="number"
+                      min="15"
+                      max="80"
+                      step="1"
+                      value={etiqueta.altura}
+                      onChange={e => setEtiquetaConfig({ altura: numberOrDefault(e.target.value, ETIQUETA_DEFAULT.altura) })}
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Margem interna (mm)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="8"
+                      step="0.1"
+                      value={etiqueta.margem}
+                      onChange={e => setEtiquetaConfig({ margem: numberOrDefault(e.target.value, ETIQUETA_DEFAULT.margem) })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Altura do código de barras (mm)</label>
+                    <input
+                      type="number"
+                      min="6"
+                      max="30"
+                      step="1"
+                      value={etiqueta.barcodeAltura}
+                      onChange={e => setEtiquetaConfig({ barcodeAltura: numberOrDefault(e.target.value, ETIQUETA_DEFAULT.barcodeAltura) })}
+                    />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>Modelo da etiqueta</label>
+                  <select
+                    value={etiqueta.modelo}
+                    onChange={e => setEtiquetaConfig({ modelo: e.target.value })}
+                  >
+                    <option value="completo">Completo: produto, variação, código e preço</option>
+                    <option value="sem_preco">Sem preço: produto, variação e código</option>
+                  </select>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                  Usado na prévia e na impressão de etiquetas do Estoque.
+                </p>
+              </div>
+            );
+          })()}
 
           <div className="form-group">
             <label>Tamanhos disponíveis (separados por vírgula)</label>
@@ -611,6 +947,7 @@ export default function Configuracoes({ user }) {
             payload.pix_chave = configs.pix_chave || '';
             payload.pix_nome = configs.pix_nome || '';
             payload.pix_cidade = configs.pix_cidade || '';
+            payload.etiqueta_config = configs.etiqueta_config || JSON.stringify(ETIQUETA_DEFAULT);
             await window.api.put('/api/configuracoes', payload);
             showAlert('Configurações salvas!');
           }}>

@@ -3,12 +3,24 @@ import JsBarcode from 'jsbarcode';
 import { fuzzyMatch } from '../utils/fuzzySearch';
 import { useModal } from '../components/Modal';
 
+// Estado vazio do form. Usado em mount, reset pós-submit e no fluxo "Novo
+// Produto" do handleOpenForm. Defaults fiscais cobrem o caso comum (Simples
+// Nacional + venda intra-estadual de varejo); NCM fica vazio por escolha
+// consciente para o usuário preencher item a item.
+const EMPTY_FORM = {
+  nome: '', descricao: '', preco_custo: '', preco_venda: '',
+  codigo_barras: '', num_variacoes: 1, categoria_id: '',
+  ncm: '', cest: '', cfop: '5102', origem_mercadoria: 0,
+  csosn: '102', unidade_comercial: 'UN', pis_cst: '49', cofins_cst: '49'
+};
+
 export default function Produtos() {
   const [produtos, setProdutos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', num_variacoes: 1, categoria_id: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [showFiscal, setShowFiscal] = useState(false);
   const [search, setSearch] = useState('');
   const [barcodeProduct, setBarcodeProduct] = useState(null);
   const [historicoPrecosModal, setHistoricoPrecosModal] = useState(null);
@@ -73,18 +85,27 @@ export default function Produtos() {
     if (produto) {
       setEditingId(produto.id);
       setForm({
+        ...EMPTY_FORM,
         nome: produto.nome,
         descricao: produto.descricao || '',
         preco_custo: produto.preco_custo || '',
         preco_venda: produto.preco_venda,
         codigo_barras: produto.codigo_barras || '',
-        num_variacoes: 1,
-        categoria_id: produto.categoria_id || ''
+        categoria_id: produto.categoria_id || '',
+        ncm: produto.ncm || '',
+        cest: produto.cest || '',
+        cfop: produto.cfop || EMPTY_FORM.cfop,
+        origem_mercadoria: produto.origem_mercadoria ?? EMPTY_FORM.origem_mercadoria,
+        csosn: produto.csosn || EMPTY_FORM.csosn,
+        unidade_comercial: produto.unidade_comercial || EMPTY_FORM.unidade_comercial,
+        pis_cst: produto.pis_cst || EMPTY_FORM.pis_cst,
+        cofins_cst: produto.cofins_cst || EMPTY_FORM.cofins_cst
       });
     } else {
       setEditingId(null);
-      setForm({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', num_variacoes: 1, categoria_id: '' });
+      setForm(EMPTY_FORM);
     }
+    setShowFiscal(false);
     setShowForm(true);
   };
 
@@ -105,14 +126,22 @@ export default function Produtos() {
       codigo_barras: form.codigo_barras,
       num_variacoes: editingId ? undefined : Number(form.num_variacoes) || 1,
       categoria_id: form.categoria_id || null,
-      usuario_id: user?.id
+      usuario_id: user?.id,
+      ncm: form.ncm,
+      cest: form.cest,
+      cfop: form.cfop,
+      origem_mercadoria: Number(form.origem_mercadoria),
+      csosn: form.csosn,
+      unidade_comercial: form.unidade_comercial,
+      pis_cst: form.pis_cst,
+      cofins_cst: form.cofins_cst
     };
     if (editingId) {
       await window.api.put(`/api/produtos/${editingId}`, data);
     } else {
       await window.api.post('/api/produtos', data);
     }
-    setForm({ nome: '', descricao: '', preco_custo: '', preco_venda: '', codigo_barras: '', num_variacoes: 1, categoria_id: '' });
+    setForm(EMPTY_FORM);
     setShowForm(false);
     setEditingId(null);
     loadData();
@@ -157,65 +186,161 @@ export default function Produtos() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h1>Produtos</h1>
         <button className="btn-primary" onClick={() => handleOpenForm()}>
-          {showForm ? 'Cancelar' : '+ Novo Produto'}
+          + Novo Produto
         </button>
       </div>
 
       {showForm && (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <h3 style={{ marginBottom: 16 }}>{editingId ? 'Editar Produto' : 'Novo Produto'}</h3>
-          <form onSubmit={handleSubmit}>
-            <div className="form-row">
-              <div className="form-group" style={{ flex: 2 }}>
-                <label>Nome *</label>
-                <input value={form.nome} onChange={e => setForm({...form, nome: e.target.value})} required />
+        <div className="modal-overlay" onClick={() => { setShowForm(false); setEditingId(null); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 780, width: '92vw', maxHeight: '88vh', overflowY: 'auto' }}>
+            <h3 style={{ marginBottom: 16 }}>{editingId ? 'Editar Produto' : 'Novo Produto'}</h3>
+            <form onSubmit={handleSubmit}>
+              <div className="form-row">
+                <div className="form-group" style={{ flex: 2 }}>
+                  <label>Nome *</label>
+                  <input value={form.nome} onChange={e => setForm({...form, nome: e.target.value})} required autoFocus />
+                </div>
+                <div className="form-group">
+                  <label>Código de Barras (modelo)</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input value={form.codigo_barras} onChange={e => setForm({...form, codigo_barras: e.target.value})} style={{ flex: 1 }} placeholder="Opcional" />
+                    <button type="button" className="btn-secondary" onClick={generateBarcodeCode}
+                      style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}>Gerar</button>
+                  </div>
+                </div>
+                {!editingId && (
+                  <div className="form-group" style={{ minWidth: 160 }}>
+                    <label>Variações a cadastrar *</label>
+                    <input
+                      type="number" min="1" max="200"
+                      value={form.num_variacoes}
+                      onChange={e => setForm({...form, num_variacoes: e.target.value})}
+                      required
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, display: 'block' }}>
+                      {form.num_variacoes > 1 ? `${form.num_variacoes} entradas criadas no estoque (barcode único cada)` : '1 entrada criada no estoque'}
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="form-group">
-                <label>Código de Barras (modelo)</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input value={form.codigo_barras} onChange={e => setForm({...form, codigo_barras: e.target.value})} style={{ flex: 1 }} placeholder="Opcional" />
-                  <button type="button" className="btn-secondary" onClick={generateBarcodeCode}
-                    style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}>Gerar</button>
+                <label>Descrição</label>
+                <textarea value={form.descricao} onChange={e => setForm({...form, descricao: e.target.value})} rows={2} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Preço Custo</label>
+                  <input type="number" step="0.01" value={form.preco_custo} onChange={e => setForm({...form, preco_custo: e.target.value})} />
+                </div>
+                <div className="form-group">
+                  <label>Preço Venda *</label>
+                  <input type="number" step="0.01" value={form.preco_venda} onChange={e => setForm({...form, preco_venda: e.target.value})} required />
+                </div>
+                <div className="form-group">
+                  <label>Categoria</label>
+                  <select value={form.categoria_id} onChange={e => setForm({...form, categoria_id: e.target.value})}>
+                    <option value="">Sem categoria</option>
+                    {categorias.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
                 </div>
               </div>
-              {!editingId && (
-                <div className="form-group" style={{ minWidth: 160 }}>
-                  <label>Variações a cadastrar *</label>
-                  <input
-                    type="number" min="1" max="200"
-                    value={form.num_variacoes}
-                    onChange={e => setForm({...form, num_variacoes: e.target.value})}
-                    required
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, display: 'block' }}>
-                    {form.num_variacoes > 1 ? `${form.num_variacoes} entradas criadas no estoque (barcode único cada)` : '1 entrada criada no estoque'}
-                  </span>
-                </div>
-              )}
-            </div>
-            <div className="form-group">
-              <label>Descrição</label>
-              <textarea value={form.descricao} onChange={e => setForm({...form, descricao: e.target.value})} rows={2} />
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Preço Custo</label>
-                <input type="number" step="0.01" value={form.preco_custo} onChange={e => setForm({...form, preco_custo: e.target.value})} />
+              <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                <button type="button" onClick={() => setShowFiscal(s => !s)}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)',
+                    fontSize: 14, cursor: 'pointer', padding: 0, fontWeight: 600 }}>
+                  {showFiscal ? '▾' : '▸'} Dados Fiscais (NFC-e)
+                </button>
+                {showFiscal && (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>NCM (8 dígitos)</label>
+                        <input value={form.ncm}
+                          onChange={e => setForm({ ...form, ncm: e.target.value.replace(/\D/g, '').slice(0, 8) })}
+                          placeholder="Ex: 61091000" maxLength={8} />
+                      </div>
+                      <div className="form-group">
+                        <label>CEST (7 dígitos)</label>
+                        <input value={form.cest}
+                          onChange={e => setForm({ ...form, cest: e.target.value.replace(/\D/g, '').slice(0, 7) })}
+                          placeholder="Opcional" maxLength={7} />
+                      </div>
+                      <div className="form-group">
+                        <label>CFOP</label>
+                        <input value={form.cfop}
+                          onChange={e => setForm({ ...form, cfop: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                          maxLength={4} />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Origem da Mercadoria</label>
+                        <select value={form.origem_mercadoria}
+                          onChange={e => setForm({ ...form, origem_mercadoria: Number(e.target.value) })}>
+                          <option value={0}>0 - Nacional</option>
+                          <option value={1}>1 - Estrangeira (importação direta)</option>
+                          <option value={2}>2 - Estrangeira (mercado interno)</option>
+                          <option value={3}>3 - Nacional, mais de 40% conteúdo importado</option>
+                          <option value={4}>4 - Nacional (PPB)</option>
+                          <option value={5}>5 - Nacional, até 40% conteúdo importado</option>
+                          <option value={6}>6 - Estrangeira (importação direta, sem similar nacional)</option>
+                          <option value={7}>7 - Estrangeira (mercado interno, sem similar nacional)</option>
+                          <option value={8}>8 - Nacional, mais de 70% conteúdo importado</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>CSOSN (Simples Nacional)</label>
+                        <select value={form.csosn} onChange={e => setForm({ ...form, csosn: e.target.value })}>
+                          <option value="101">101 - Tributada com permissão de crédito</option>
+                          <option value="102">102 - Tributada sem permissão de crédito</option>
+                          <option value="103">103 - Isenção do ICMS na faixa de receita bruta</option>
+                          <option value="201">201 - Tributada com crédito + ST</option>
+                          <option value="202">202 - Tributada sem crédito + ST</option>
+                          <option value="203">203 - Isenção do ICMS + ST</option>
+                          <option value="300">300 - Imune</option>
+                          <option value="400">400 - Não tributada</option>
+                          <option value="500">500 - ICMS cobrado anteriormente por ST</option>
+                          <option value="900">900 - Outros</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Unidade Comercial</label>
+                        <input value={form.unidade_comercial}
+                          onChange={e => setForm({ ...form, unidade_comercial: e.target.value.toUpperCase().slice(0, 6) })}
+                          maxLength={6} />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>PIS CST</label>
+                        <input value={form.pis_cst}
+                          onChange={e => setForm({ ...form, pis_cst: e.target.value.replace(/\D/g, '').slice(0, 2) })}
+                          maxLength={2} />
+                      </div>
+                      <div className="form-group">
+                        <label>COFINS CST</label>
+                        <input value={form.cofins_cst}
+                          onChange={e => setForm({ ...form, cofins_cst: e.target.value.replace(/\D/g, '').slice(0, 2) })}
+                          maxLength={2} />
+                      </div>
+                      <div className="form-group" style={{ flex: 1 }} />
+                    </div>
+                    {!form.ncm && (
+                      <div style={{ fontSize: 12, color: '#d4a017', marginTop: 4 }}>
+                        Atenção: NCM vazio impede a emissão de NFC-e para este produto.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="form-group">
-                <label>Preço Venda *</label>
-                <input type="number" step="0.01" value={form.preco_venda} onChange={e => setForm({...form, preco_venda: e.target.value})} required />
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button type="button" className="btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn-success">{editingId ? 'Atualizar Produto' : 'Salvar Produto'}</button>
               </div>
-              <div className="form-group">
-                <label>Categoria</label>
-                <select value={form.categoria_id} onChange={e => setForm({...form, categoria_id: e.target.value})}>
-                  <option value="">Sem categoria</option>
-                  {categorias.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                </select>
-              </div>
-            </div>
-            <button type="submit" className="btn-success">{editingId ? 'Atualizar Produto' : 'Salvar Produto'}</button>
-          </form>
+            </form>
+          </div>
         </div>
       )}
 
